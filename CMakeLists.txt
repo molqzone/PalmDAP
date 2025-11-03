@@ -63,7 +63,12 @@ target_compile_options(${PROJECT_NAME}.elf PRIVATE -O3)
 
 # Source files
 file(GLOB CORE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/Core/*.c")
-file(GLOB USER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/User/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/User/*.cpp")
+
+# User sources - recursively collect all .c and .cpp files in User directory
+file(GLOB_RECURSE USER_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/User/*.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/User/*.cpp"
+)
 
 target_sources(${PROJECT_NAME}.elf
   PRIVATE
@@ -77,6 +82,9 @@ target_sources(${PROJECT_NAME}.elf
 target_include_directories(${PROJECT_NAME}.elf PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/Core
   ${CMAKE_CURRENT_SOURCE_DIR}/User
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink/core
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink/usb
   ${CMAKE_CURRENT_SOURCE_DIR}/Peripheral/inc
 )
 
@@ -114,6 +122,9 @@ target_link_libraries(${PROJECT_NAME}.elf PUBLIC xr)
 target_include_directories(xr PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/Core
   ${CMAKE_CURRENT_SOURCE_DIR}/User
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink/core
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink/usb
   ${CMAKE_CURRENT_SOURCE_DIR}/Peripheral/inc
   ${CMAKE_CURRENT_SOURCE_DIR}/FreeRTOS/include
   ${CMAKE_CURRENT_SOURCE_DIR}/FreeRTOS/portable/GCC/RISC-V
