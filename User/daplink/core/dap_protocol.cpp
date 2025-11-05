@@ -72,7 +72,7 @@ DapProtocol::CommandResult DapProtocol::ProcessCommand(const uint8_t* request,
  * @param data_ptr The byte array to copy the string into.
  * @return The number of bytes copied into `data_ptr`.
  */
-static uint8_t handle_string_info(const char* str, uint8_t* data_ptr)
+static uint8_t HandleStringInfo(const char* str, uint8_t* data_ptr)
 {
   if (!str) return 0;
   uint8_t len = strlen(str);
@@ -90,33 +90,33 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
   {
     // Strings type info
     case InfoId::Vendor:
-      data_length = handle_string_info(DAP::VENDOR_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::VENDOR_STRING, data_ptr);
       break;
     case InfoId::Product:
-      data_length = handle_string_info(DAP::PRODUCT_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::PRODUCT_STRING, data_ptr);
       break;
     case InfoId::SerialNumber:
-      data_length = handle_string_info(DAP::SERIAL_NUMBER_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::SERIAL_NUMBER_STRING, data_ptr);
       break;
     case InfoId::FirmwareVersion:
-      data_length = handle_string_info(DAP::FIRMWARE_VERSION_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::FIRMWARE_VERSION_STRING, data_ptr);
       break;
 
     // Aliases
     case InfoId::DeviceVendor:
-      data_length = handle_string_info(DAP::VENDOR_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::VENDOR_STRING, data_ptr);
       break;
     case InfoId::DeviceName:
-      data_length = handle_string_info(DAP::PRODUCT_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::PRODUCT_STRING, data_ptr);
       break;
     case InfoId::BoardVendor:
-      data_length = handle_string_info(DAP::VENDOR_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::VENDOR_STRING, data_ptr);
       break;
     case InfoId::BoardName:
-      data_length = handle_string_info(DAP::PRODUCT_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::PRODUCT_STRING, data_ptr);
       break;
     case InfoId::ProductFirmwareVersion:
-      data_length = handle_string_info(DAP::FIRMWARE_VERSION_STRING, data_ptr);
+      data_length = HandleStringInfo(DAP::FIRMWARE_VERSION_STRING, data_ptr);
       break;
 
     // Special cases
