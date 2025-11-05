@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "dap_constants.hpp"
+#include "dap_io.hpp"
 #include "libxr.hpp"
 
 namespace DAP
@@ -23,22 +24,10 @@ enum class DapPort : uint8_t
   JTAG = 2
 };
 
-/**
- * @brief Pure CMSIS-DAP v2.1 Protocol Engine
- *
- * A transport-agnostic, embedded-friendly CMSIS-DAP protocol engine.
- * This class encapsulates all protocol state machines and command handling logic.
- *
- * Thread Safety: NOT thread-safe - only one thread should call executeCommand at a time.
- * Memory: No dynamic allocation - uses static buffers only.
- */
 class DapProtocol
 {
  public:
-  /**
-   * @brief Default constructor
-   */
-  DapProtocol();
+  explicit DapProtocol(DapIo& io);
 
   /**
    * @brief Execute DAP command

@@ -4,11 +4,11 @@
 #include <functional>
 
 #include "dap_config.hpp"
-
+#include "dap_io.hpp"
 namespace DAP
 {
 
-DapProtocol::DapProtocol() { Setup(); }
+DapProtocol::DapProtocol(DapIo& io) : io_(io) { Setup(); }
 
 void DapProtocol::Setup()
 {
