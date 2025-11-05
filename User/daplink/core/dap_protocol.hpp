@@ -169,15 +169,16 @@ class DapProtocol
     // if (io_.pin_swdio_out_disable) io_.pin_swdio_out_disable();
   }
 
-  // Member Variables
-  State state_;
-  uint8_t response_buffer_[kMaxResponseSize];
-
   // Prevent copying
   DapProtocol(const DapProtocol&) = delete;
   DapProtocol& operator=(const DapProtocol&) = delete;
 
  private:
+  DapIo& io_;
+
+  State state_;
+  uint8_t response_buffer_[kMaxResponseSize];
+
   using InfoHandler = std::function<uint8_t(uint8_t* response_data_buffer)>;
   struct InfoEntry
   {
