@@ -345,12 +345,6 @@ void DapProtocol::PortOff()
   io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
   io_.gpio_tdo.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
   io_.gpio_nreset.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
-
-  // We should also disable the SPI peripheral to save power and release the SCK pin.
-  // A proper LibXR driver should have a `Deinit()` or similar method.
-  // Assuming `SetConfig` with a special value or a `Stop` method might do this.
-  // If not, this is a limitation of the abstraction we have to live with.
-  // For now, we'll assume the GPIO config is sufficient.
 }
 
 }  // namespace DAP
