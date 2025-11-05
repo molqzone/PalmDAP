@@ -124,51 +124,6 @@ class DapProtocol
   CommandResult DummyTransfer(const uint8_t* req, uint8_t* res);
   uint8_t SwdTransferSingle(uint8_t request, uint32_t* data);
 
-  // Hardware Helper Functions
-  // TODO: Implement hardware abstraction for SWJ pin operations
-  inline void SetSwclk() const
-  {
-    // TODO: Implement SWCLK/TCK pin set operation
-    // if (io_.pin_swclk_tck_set) io_.pin_swclk_tck_set();
-  }
-  inline void ClearSwclk() const
-  {
-    // TODO: Implement SWCLK/TCK pin clear operation
-    // if (io_.pin_swclk_tck_clr) io_.pin_swclk_tck_clr();
-  }
-  inline void SetSwdioTms() const
-  {
-    // TODO: Implement SWDIO/TMS pin set operation
-    // if (io_.pin_swdio_tms_set) io_.pin_swdio_tms_set();
-  }
-  inline void ClearSwdioTms() const
-  {
-    // TODO: Implement SWDIO/TMS pin clear operation
-    // if (io_.pin_swdio_tms_clr) io_.pin_swdio_tms_clr();
-  }
-  inline uint8_t ReadSwdioTms() const
-  {
-    // TODO: Implement SWDIO/TMS pin read operation
-    // return io_.pin_swdio_tms_read ? io_.pin_swdio_tms_read() : 0;
-    return 0;
-  }
-  inline uint8_t ReadTdo() const
-  {
-    // TODO: Implement TDO pin read operation
-    // return io_.pin_tdo_read ? io_.pin_tdo_read() : 0;
-    return 0;
-  }
-  inline void EnableSwdioOutput() const
-  {
-    // TODO: Implement SWDIO output enable operation
-    // if (io_.pin_swdio_out_enable) io_.pin_swdio_out_enable();
-  }
-  inline void DisableSwdioOutput() const
-  {
-    // TODO: Implement SWDIO output disable operation
-    // if (io_.pin_swdio_out_disable) io_.pin_swdio_out_disable();
-  }
-
   // Prevent copying
   DapProtocol(const DapProtocol&) = delete;
   DapProtocol& operator=(const DapProtocol&) = delete;
