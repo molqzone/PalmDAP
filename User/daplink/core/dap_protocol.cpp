@@ -161,40 +161,35 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
 
 DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_t* res)
 {
-  DapProtocol::CommandResult result{};
   const auto port = static_cast<Port>(req[0]);
-  bool success = false;
+  LibXR::ErrorCode success = LibXR::ErrorCode::FAILED;
 
+  // Handle the selected port
   if (port == Port::SWD)
   {
-    // TODO: If port swd setup hardware config is true
-    state_.debug_port = DapPort::SWD;
-    success = true;
+    success = SetupSwd();
   }
   else if (port == Port::JTAG)
   {
-    // TODO: If port jtag setup hardware config is true
-    state_.debug_port = DapPort::JTAG;
-    success = true;
+    success = SetupJtag();
   }
 
-  if (success)
+  // Set response based on success
+  if (success == LibXR::ErrorCode::OK)
   {
+    state_.debug_port = static_cast<DapPort>(port);
     res[0] = static_cast<uint8_t>(Status::OK);
     res[1] = static_cast<uint8_t>(port);
   }
   else
   {
+    PortOff();
     state_.debug_port = DapPort::DISABLED;
-
-    // TODO: Set port to disabled if setup failed
     res[0] = static_cast<uint8_t>(Status::Error);
     res[1] = static_cast<uint8_t>(Port::Disabled);
   }
 
-  result.request_consumed = 1;
-  result.response_generated = 2;
-  return result;
+  return {1, 2};  // Request consumed, response produced
 }
 
 DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res)
@@ -208,6 +203,154 @@ DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res)
   result.request_consumed = 0;
   result.response_generated = 1;
   return result;
+}
+
+LibXR::ErrorCode DapProtocol::SetupSwd()
+{
+  LibXR::Semaphore sem;
+  LibXR::WriteOperation op_block(sem, 100);  // 100 ms timeout
+  LibXR::ErrorCode err;
+
+  // Configure SPI to generate SWCLK (SPI Mode 0 is typical for SWD)
+  // NOTE - The actual clock frequency should be set via HandleSwjClock.
+  err =
+      io_.spi.SetConfig({LibXR::SPI::ClockPolarity::LOW, LibXR::SPI::ClockPhase::EDGE_1});
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Configure GPIOs for SWDIO and nRESET as needed
+  // nRESET is open-drain, kept high (de-asserted)
+  err = io_.gpio_nreset.SetConfig({
+      LibXR::GPIO::Direction::OUTPUT_OPEN_DRAIN,
+      LibXR::GPIO::Pull::NONE  // NOTE - Assuming external pull-up
+  });
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+  io_.gpio_nreset.Write(true);  // Deassert nRESET
+
+  // SWDIO is used for both input and output. We'll manage its direction.
+  // Start with it as an output for the switching sequence.
+  err = io_.gpio_swdio.SetConfig({
+      LibXR::GPIO::Direction::OUTPUT_PUSH_PULL,
+      LibXR::GPIO::Pull::NONE  // NOTE - Assuming external pull-up
+  });
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Execute the JTAG-to-SWD Switching Sequence
+
+  // Send > 50 SWCLK cycles with SWDIO (TMS) high to reset JTAG state machine.
+  io_.gpio_swdio.Write(true);  // SWDIO high
+  // We send 8 bytes of 0xFF. MOSI (connected to SWDIO) is held high,
+  // and SCK generates 64 clock cycles.
+  const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  err = io_.spi.Write({high_bits, sizeof(high_bits)}, op_block);
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Send the 16-bit JTAG-to-SWD sequence (0xE79E), MSB first.
+  const uint8_t swd_seq[2] = {0xE7, 0x9E};
+  err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, op_block);
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Finalize with > 50 SWCLK cycles with SWDIO (TMS) high.
+  err = io_.spi.Write({high_bits, sizeof(high_bits)}, op_block);
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Now the target is in SWD mode. The port is ready.
+  // We can leave SWDIO as output, it will be switched to input as needed
+  // during SWD transfers.
+
+  return LibXR::ErrorCode::OK;
+}
+
+LibXR::ErrorCode DapProtocol::SetupJtag()
+{
+  LibXR::Semaphore sem;
+  LibXR::WriteOperation op_block(sem, 100);  // 100 ms timeout
+  LibXR::ErrorCode err;
+
+  // Configure SPI for JTAG clocking (Mode 0 is common)
+  err =
+      io_.spi.SetConfig({LibXR::SPI::ClockPolarity::LOW, LibXR::SPI::ClockPhase::EDGE_1});
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Configure GPIOs for JTAG
+  err = io_.gpio_nreset.SetConfig({
+      LibXR::GPIO::Direction::OUTPUT_OPEN_DRAIN,
+      LibXR::GPIO::Pull::NONE  // NOTE - Assuming external pull-up
+  });
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+  io_.gpio_nreset.Write(true);  // Deassert nRESET
+
+  // TDO is a dedicated input
+  err = io_.gpio_tdo.SetConfig({
+      LibXR::GPIO::Direction::INPUT,
+      LibXR::GPIO::Pull::UP  // NOTE - often pulled up
+  });
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // TODO - TMS is now shared with SWDIO, make it configurable in future
+  // TMS is controlled by the SWDIO pin in our shared-pin setup
+  err = io_.gpio_swdio.SetConfig(
+      {LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  // Reset the JTAG TAP controller to Test-Logic-Reset state
+  // by sending at least 5 TCK cycles with TMS high.
+  io_.gpio_swdio.Write(true);                 // TMS high
+  const uint8_t high_bits_reset[1] = {0xFF};  // 8 bits of 0xFF = 8 TCK cycles
+  err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, op_block);
+  if (err != LibXR::ErrorCode::OK)
+  {
+    return err;
+  }
+
+  return LibXR::ErrorCode::OK;
+}
+
+void DapProtocol::PortOff()
+{
+  LibXR::Semaphore sem;
+  LibXR::WriteOperation op_block(sem, 100);  // 100 ms timeout
+
+  // Configure all relevant GPIOs as high-impedance inputs.
+  // This prevents the debug probe from driving any lines when disconnected.
+  io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
+  io_.gpio_tdo.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
+  io_.gpio_nreset.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
+
+  // We should also disable the SPI peripheral to save power and release the SCK pin.
+  // A proper LibXR driver should have a `Deinit()` or similar method.
+  // Assuming `SetConfig` with a special value or a `Stop` method might do this.
+  // If not, this is a limitation of the abstraction we have to live with.
+  // For now, we'll assume the GPIO config is sufficient.
 }
 
 }  // namespace DAP

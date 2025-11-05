@@ -140,6 +140,10 @@ class DapProtocol
     InfoId id;
     InfoHandler handler;
   };
+
+  LibXR::ErrorCode SetupSwd();
+  LibXR::ErrorCode SetupJtag();
+  void PortOff();
 };
 
 }  // namespace DAP
