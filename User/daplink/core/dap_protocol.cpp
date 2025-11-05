@@ -189,20 +189,16 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
     res[1] = static_cast<uint8_t>(Port::Disabled);
   }
 
-  return {1, 2};  // Request consumed, response produced
+  return {1, 2};  // Consumed 1 payload byte (port), produced 2 response bytes
 }
 
 DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res)
 {
-  DapProtocol::CommandResult result{};
-
   state_.debug_port = DapPort::DISABLED;
-  // TODO: Set port to disabled in hardware
+  PortOff();
 
   res[0] = static_cast<uint8_t>(Status::OK);
-  result.request_consumed = 0;
-  result.response_generated = 1;
-  return result;
+  return {0, 1};  // Consumed 0 payload bytes, produced 1 response byte
 }
 
 LibXR::ErrorCode DapProtocol::SetupSwd()
