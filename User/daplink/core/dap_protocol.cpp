@@ -163,15 +163,31 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
 {
   DapProtocol::CommandResult result{};
   const auto port = static_cast<Port>(req[0]);
+  bool success = false;
 
-  if (port == Port::SWD || port == Port::JTAG)
+  if (port == Port::SWD)
   {
-    state_.debug_port = static_cast<DapPort>(port);
+    // TODO: If port swd setup hardware config is true
+    state_.debug_port = DapPort::SWD;
+    success = true;
+  }
+  else if (port == Port::JTAG)
+  {
+    // TODO: If port jtag setup hardware config is true
+    state_.debug_port = DapPort::JTAG;
+    success = true;
+  }
+
+  if (success)
+  {
     res[0] = static_cast<uint8_t>(Status::OK);
     res[1] = static_cast<uint8_t>(port);
   }
   else
   {
+    state_.debug_port = DapPort::DISABLED;
+
+    // TODO: Set port to disabled if setup failed
     res[0] = static_cast<uint8_t>(Status::Error);
     res[1] = static_cast<uint8_t>(Port::Disabled);
   }
@@ -184,7 +200,10 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
 DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res)
 {
   DapProtocol::CommandResult result{};
+
   state_.debug_port = DapPort::DISABLED;
+  // TODO: Set port to disabled in hardware
+
   res[0] = static_cast<uint8_t>(Status::OK);
   result.request_consumed = 0;
   result.response_generated = 1;
