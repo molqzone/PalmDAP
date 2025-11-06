@@ -9,7 +9,7 @@
                 "wch-riscv.cfg"
             ],
             "executable": "build/CH32V307VC.elf",
-            "runToEntryPoint": "main",
+            // "runToEntryPoint": "main",
             "device": "CH32V307",
             "gdbPath": "riscv32-unknown-elf-gdb",
             "rtos": "FreeRTOS"

@@ -3,8 +3,8 @@
     "cmake.generator": "Ninja",
     "cmake.exportCompileCommandsFile": true,
     "clangd.arguments": [
-        "--query-driver=/opt/riscv32-elf-ubuntu-24.04-gcc-nightly-2025.06.13-nightly/bin/riscv32-unknown-elf-gcc,/opt/riscv32-elf-ubuntu-24.04-gcc-nightly-2025.06.13-nightly/bin/riscv32-unknown-elf-g++",
-        "--compile-commands-dir=${workspaceRoot}/build",
+        "--query-driver=/home/keruth/Development/riscv-ch32/bin/riscv32-unknown-elf-g++",
+        "--compile-commands-dir=${workspaceRoot}/build"
     ],
     "files.associations": {
         "array": "cpp",
@@ -74,5 +74,8 @@
         "cinttypes": "cpp",
         "typeinfo": "cpp",
         "variant": "cpp"
-    }
+    },
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.errorSquiggles": "enabled",
+    "cortex-debug.openocdPath.linux": "/home/keruth/Development/MRS_Toolchain_Linux_x64_V210/OpenOCD/OpenOCD/bin/openocd",
 }
