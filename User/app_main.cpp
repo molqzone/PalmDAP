@@ -1,6 +1,5 @@
 #include <cmath>
 
-#include "cdc_uart.hpp"
 #include "ch32_gpio.hpp"
 #include "ch32_spi.hpp"
 #include "ch32_timebase.hpp"
@@ -14,16 +13,16 @@
 
 // EP0: Control, 64 bytes
 static uint8_t ep0_buffer_hs[64];
-// EP1: HID IN (64 bytes report size)
-static uint8_t ep1_buffer_tx_hs[1024];
-// EP2: HID OUT (64 bytes report size)
-static uint8_t ep2_buffer_rx_hs[1024];
-// EP3: CDC Data IN
-static uint8_t ep3_buffer_tx_hs[1024];
-// EP4: CDC Data OUT
-static uint8_t ep4_buffer_rx_hs[1024];
-// EP5: CDC Notification IN
-static uint8_t ep5_buffer_tx_hs[8];
+// EP1: Bidirectional endpoint buffer
+static uint8_t ep1_buffer_tx_hs[64];
+// EP2: Bidirectional endpoint buffer
+static uint8_t ep2_buffer_tx_hs[64];
+// EP3: Bidirectional endpoint buffer
+static uint8_t ep3_buffer_tx_hs[64];
+// EP4: Bidirectional endpoint buffer
+static uint8_t ep4_buffer_tx_hs[64];
+// EP5: Bidirectional endpoint buffer
+static uint8_t ep5_buffer_tx_hs[64];
 
 uint8_t spi_dma_tx_buffer[64], spi_dma_rx_buffer[64];
 
@@ -38,38 +37,34 @@ extern "C" void app_main()
 
   DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset);
 
-  LibXR::USB::HIDCmsisDap dap_interface(dap_io_instance);
+  LibXR::USB::HIDCmsisDap dap_interface(dap_io_instance, 1, 1);
 
   static constexpr auto LANG_PACK_EN_US = LibXR::USB::DescriptorStrings::MakeLanguagePack(
-      LibXR::USB::DescriptorStrings::Language::EN_US, "XRobot", "CDC Demo", "123456789");
-
-  LibXR::USB::CDCUart cdc(4096, 4096, 8), cdc1;
-  ;
+      LibXR::USB::DescriptorStrings::Language::EN_US, "PalmDAP",
+      "CMSIS-DAP(Powered by LibXR)", "12345678900000");
   LibXR::CH32USBDeviceFS usb_device(
       /* EP */
       {
-          {ep0_buffer_hs},            // EP0: Control
-          {ep1_buffer_tx_hs, true},   // EP1: HID IN
-          {ep2_buffer_rx_hs, false},  // EP2: HID OUT
-          {ep3_buffer_tx_hs, true},   // EP3: CDC Data IN
-          {ep4_buffer_rx_hs, false},  // EP4: CDC Data OUT
-          {ep5_buffer_tx_hs, true},   // EP5: CDC Notification IN
+          {ep0_buffer_hs},     // EP0: Control
+          {ep1_buffer_tx_hs},  // EP1: Creates both IN and OUT
+          {ep2_buffer_tx_hs},  // EP2: Creates both IN and OUT
+          {ep3_buffer_tx_hs},  // EP3: Creates both IN and OUT
+          {ep4_buffer_tx_hs},  // EP4: Creates both IN and OUT
+          {ep5_buffer_tx_hs},  // EP5: Creates both IN and OUT
       },
       /* packet size */
       LibXR::USB::DeviceDescriptor::PacketSize0::SIZE_64,
       /* vid pid bcd */
-      0x1209, 0x0001, 0x0100,
+      0x0D28, 0x0204, 0x0100,
       /* language */
       {&LANG_PACK_EN_US},
       /* config */
-      // A compound device with two CDC interfaces and one HID interface
+      // HID-only CMSIS-DAP device (simple and focused)
       {
           {&dap_interface},
-          {&cdc1},
       });
 
   usb_device.Init();
-
   usb_device.Start();
 
   // Initialize GPIO pins used by SPI and DAP
