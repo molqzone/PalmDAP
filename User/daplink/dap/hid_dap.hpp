@@ -45,10 +45,6 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
 
   std::array<uint8_t, 64> response_buffer_{};
 
-  // Buffer for storing responses to be returned via GET_REPORT
-  std::array<uint8_t, 64> current_response_{};
-  size_t current_response_len_ = 0;
-
  protected:
   ConstRawData GetReportDesc() override
   {
@@ -60,7 +56,8 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
   {
     // CMSIS-DAP doesn't use report IDs, but accept any for compatibility
     (void)report_id;
-    (void)result;
+
+    result.read_data = {response_buffer_.data(), response_buffer_.size()};
 
     return ErrorCode::OK;
   }
@@ -70,36 +67,50 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
   {
     UNUSED(in_isr);
 
-    // Execute DAP command using the CMSIS-DAP protocol engine
-    const auto* request = static_cast<const uint8_t*>(data.addr_);
-    size_t response_len = dap_engine_.ExecuteCommand(request, response_buffer_.data());
-
-    // Store response for the next GET_REPORT request
-    current_response_len_ = response_len;
-    if (response_len > 0)
+    // Validate input data length - CMSIS-DAP requires at least 1 byte (command ID)
+    if (data.size_ == 0 || data.addr_ == nullptr)
     {
-      memcpy(current_response_.data(), response_buffer_.data(), response_len);
+      static uint8_t error_response[64] = {0};
+      SendInputReport(ConstRawData{error_response, 64});
+      return ErrorCode::OK;
     }
 
-    return ErrorCode::OK;
-  }
+    const auto* request = static_cast<const uint8_t*>(data.addr_);
 
-  // Send DAP responses via HID GET_REPORT
-  ErrorCode OnGetInputReport(uint8_t report_id,
-                             DeviceClass::RequestResult& result) override
-  {
-    (void)report_id;
-
-    // Return the most recent DAP response
-    if (current_response_len_ > 0)
+    // Handle special TransferAbort command (like DAPLink does)
+    if (request[0] == 0x18)  // ID_DAP_TransferAbort
     {
-      result.write_data = ConstRawData{current_response_.data(), current_response_len_};
+      // NOTE - For now, just acknowledge the command
+      static uint8_t abort_response[64] = {0};
+      abort_response[0] = request[0];  // Echo command ID
+      abort_response[1] = 0x00;        // Status: OK
+      SendInputReport(ConstRawData{abort_response, 64});
+      return ErrorCode::OK;
+    }
+
+    // Execute DAP command using the CMSIS-DAP protocol engine
+    size_t response_len = dap_engine_.ExecuteCommand(request, response_buffer_.data());
+
+    // Send response via interrupt IN endpoint (CMSIS-DAP V1 standard method)
+    if (response_len > 0)
+    {
+      // Create 64-byte response buffer padded with zeros (CMSIS-DAP standard)
+      static uint8_t response_packet[64];
+      memset(response_packet, 0, sizeof(response_packet));
+
+      // Copy response data (max 64 bytes) - preserve the actual DAP response format
+      size_t copy_len = (response_len > 64) ? 64 : response_len;
+      memcpy(response_packet, response_buffer_.data(), copy_len);
+
+      // Send via interrupt IN endpoint
+      SendInputReport(ConstRawData{response_packet, 64});
     }
     else
     {
-      // Empty response when no data is available
-      result.write_data = ConstRawData{current_response_.data(), 1};
-      current_response_[0] = 0x00;
+      // Send minimal valid response
+      static uint8_t empty_response[64] = {0};
+      empty_response[0] = request[0];  // Echo command ID
+      SendInputReport(ConstRawData{empty_response, 64});
     }
 
     return ErrorCode::OK;
