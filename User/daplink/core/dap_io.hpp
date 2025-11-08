@@ -8,16 +8,6 @@ namespace DAP
 /**
  * @struct DapIo
  * @brief
- * A template-based container for injecting concrete LibXR hardware drivers
- * into DapProtocol. This allows for static dispatch and compile-time selection
- * of hardware implementations.
- *
- * @tparam SpiType The concrete SPI driver class (e.g., CH32_SPI)
- * @tparam GpioType The concrete GPIO driver class (e.g., CH32_GPIO)
- */
-/**
- * @struct DapIo
- * @brief
  * A container for injecting LibXR hardware resources into DapProtocol.
  * It holds references to the abstract base classes (SPI&, GPIO&),
  * allowing for dynamic polymorphism.
