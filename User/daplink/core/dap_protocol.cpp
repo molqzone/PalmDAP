@@ -32,11 +32,9 @@ DapProtocol::CommandResult DapProtocol::ProcessCommand(const uint8_t* request,
 {
   const auto command = static_cast<CommandId>(request[0]);  ///< Command ID
 
-  // Debug: Mark that we received a command
-  response[0] = request[0];                                 // Echo ID
-
   // Set debug pattern in bytes 62-63 to verify this function is called
-  if (response[0] == 0x00 || response[0] == 0x02) {  // DAP_Info or DAP_Connect
+  if (response[0] == 0x00 || response[0] == 0x02)
+  {  // DAP_Info or DAP_Connect
     // We'll set this later after processing
   }
 
@@ -97,6 +95,7 @@ DapProtocol::CommandResult DapProtocol::ProcessCommand(const uint8_t* request,
 
   // Total consumed = command byte + payload consumed
   result.request_consumed += 1;
+  result.response_generated += 1;
   return result;
 }
 
