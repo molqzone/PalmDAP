@@ -48,6 +48,10 @@ class DapProtocol
    */
   DapPort GetDebugPort() const { return state_.debug_port; }
 
+  // SPI operation synchronization objects - public for external access
+  LibXR::Semaphore spi_sem_;
+  LibXR::WriteOperation spi_write_op_;
+
  private:
   struct JtagDevice
   {
@@ -96,13 +100,13 @@ class DapProtocol
 
   // Core Processing
   void Setup();
-  CommandResult ProcessCommand(const uint8_t* request, uint8_t* response);
+  CommandResult ProcessCommand(const uint8_t* request, uint8_t* response, bool in_isr = false);
 
   // Command Handlers
   CommandResult HandleInfo(const uint8_t* req, uint8_t* res);
   CommandResult HandleHostStatus(const uint8_t* req, uint8_t* res);
-  CommandResult HandleConnect(const uint8_t* req, uint8_t* res);
-  CommandResult HandleDisconnect(uint8_t* res);
+  CommandResult HandleConnect(const uint8_t* req, uint8_t* res, bool in_isr = false);
+  CommandResult HandleDisconnect(uint8_t* res, bool in_isr = false);
   CommandResult HandleTransferConfigure(const uint8_t* req, uint8_t* res);
   CommandResult HandleTransfer(const uint8_t* req, uint8_t* res);
   CommandResult HandleTransferBlock(const uint8_t* req, uint8_t* res);

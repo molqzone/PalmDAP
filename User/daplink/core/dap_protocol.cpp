@@ -8,7 +8,10 @@
 namespace DAP
 {
 
-DapProtocol::DapProtocol(DapIo& io) : io_(io) { Setup(); }
+DapProtocol::DapProtocol(DapIo& io) : io_(io), spi_sem_(0), spi_write_op_(spi_sem_, 100)
+{
+  Setup();
+}
 
 void DapProtocol::Setup()
 {
@@ -315,10 +318,8 @@ LibXR::ErrorCode DapProtocol::SetupSwd()
   return LibXR::ErrorCode::OK;
 }
 
-LibXR::ErrorCode DapProtocol::SetupJtag()
+LibXR::ErrorCode DapProtocol::SetupJtag(bool in_isr)
 {
-  LibXR::Semaphore sem;
-  LibXR::WriteOperation op_block(sem, 100);  // 100 ms timeout
   LibXR::ErrorCode err;
 
   // Configure SPI for JTAG clocking (Mode 0 is common)
@@ -363,7 +364,7 @@ LibXR::ErrorCode DapProtocol::SetupJtag()
   // by sending at least 5 TCK cycles with TMS high.
   io_.gpio_swdio.Write(true);                 // TMS high
   const uint8_t high_bits_reset[1] = {0xFF};  // 8 bits of 0xFF = 8 TCK cycles
-  err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, op_block);
+  err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
@@ -372,11 +373,8 @@ LibXR::ErrorCode DapProtocol::SetupJtag()
   return LibXR::ErrorCode::OK;
 }
 
-void DapProtocol::PortOff()
+void DapProtocol::PortOff(bool in_isr)
 {
-  LibXR::Semaphore sem;
-  LibXR::WriteOperation op_block(sem, 100);  // 100 ms timeout
-
   // Configure all relevant GPIOs as high-impedance inputs.
   // This prevents the debug probe from driving any lines when disconnected.
   io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
@@ -402,7 +400,8 @@ DapProtocol::CommandResult DapProtocol::HandleSwjClock(const uint8_t* req, uint8
   return {1, 1};  // Consume 1 byte, produce 1 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwjSequence(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwjSequence(const uint8_t* req,
+                                                          uint8_t* res)
 {
   // Basic implementation - just return success
   // TODO: Implement actual SWJ sequence if needed
@@ -410,7 +409,8 @@ DapProtocol::CommandResult DapProtocol::HandleSwjSequence(const uint8_t* req, ui
   return {1, 1};  // Consume 1 byte, produce 1 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(const uint8_t* req,
+                                                           uint8_t* res)
 {
   // Basic implementation - just return success
   // TODO: Implement actual SWD configuration if needed
@@ -418,7 +418,8 @@ DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(const uint8_t* req, u
   return {1, 1};  // Consume 1 byte, produce 1 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwdSequence(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwdSequence(const uint8_t* req,
+                                                          uint8_t* res)
 {
   // Basic implementation - just return success
   // TODO: Implement actual SWD sequence if needed
@@ -426,7 +427,8 @@ DapProtocol::CommandResult DapProtocol::HandleSwdSequence(const uint8_t* req, ui
   return {1, 1};  // Consume 1 byte, produce 1 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransferConfigure(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleTransferConfigure(const uint8_t* req,
+                                                                uint8_t* res)
 {
   // Basic implementation - just return success
   // TODO: Implement actual transfer configuration if needed
@@ -443,7 +445,8 @@ DapProtocol::CommandResult DapProtocol::HandleTransfer(const uint8_t* req, uint8
   return {5, 2};  // Consume 5 bytes (standard for Transfer), produce 2 bytes
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransferBlock(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleTransferBlock(const uint8_t* req,
+                                                            uint8_t* res)
 {
   // Basic implementation - return error for now
   // This is a critical command that needs full implementation for actual debugging
