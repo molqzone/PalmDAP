@@ -89,18 +89,19 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
     }
 
     // Execute DAP command using the CMSIS-DAP protocol engine
-    size_t response_len = dap_engine_.ExecuteCommand(request, response_buffer_.data(), in_isr);
+    size_t response_len =
+        dap_engine_.ExecuteCommand(request, response_buffer_.data(), in_isr);
 
     // Send response via interrupt IN endpoint (CMSIS-DAP V1 standard method)
     if (response_len > 0)
     {
       // Create 64-byte response buffer padded with zeros (CMSIS-DAP standard)
       static uint8_t response_packet[64];
-      memset(response_packet, 0, sizeof(response_packet));
+      std::memset(response_packet, 0, sizeof(response_packet));
 
       // Copy response data (max 64 bytes) - preserve the actual DAP response format
       size_t copy_len = (response_len > 64) ? 64 : response_len;
-      memcpy(response_packet, response_buffer_.data(), copy_len);
+      std::memcpy(response_packet, response_buffer_.data(), copy_len);
 
       // Send via interrupt IN endpoint
       SendInputReport(ConstRawData{response_packet, 64});
