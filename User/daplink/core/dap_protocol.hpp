@@ -136,10 +136,35 @@ class DapProtocol
   DapProtocol& operator=(const DapProtocol&) = delete;
 
  private:
+  struct SwdContext
+  {
+    enum class State {
+      IDLE,
+      SETUP_HIGH_BITS_1,
+      SETUP_SWD_SEQ,
+      SETUP_HIGH_BITS_2,
+      JTAG_RESET,
+      COMPLETE,
+      ERROR
+    };
+
+    State state = State::IDLE;
+    LibXR::ErrorCode error = LibXR::ErrorCode::OK;
+    LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus polling_status =
+        LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
+
+    // Store operation data for current step
+    const uint8_t* current_data = nullptr;
+    size_t current_length = 0;
+  };
+
   DapIo& io_;
 
   State state_;
   uint8_t response_buffer_[kMaxResponseSize];
+
+  // ISR context management
+  SwdContext swd_ctx_;
 
   using InfoHandler = std::function<uint8_t(uint8_t* response_data_buffer)>;
   struct InfoEntry
@@ -151,6 +176,12 @@ class DapProtocol
   LibXR::ErrorCode SetupSwd(bool in_isr = false);
   LibXR::ErrorCode SetupJtag(bool in_isr = false);
   void PortOff(bool in_isr = false);
+
+  // ISR-safe SPI operations using Operation model
+  void StartSwdSequence();
+  void StartJtagSequence();
+  LibXR::ErrorCode ProcessNextStep();
+  void ContinueSequence();
 };
 
 }  // namespace DAP

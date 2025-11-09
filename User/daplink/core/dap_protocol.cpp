@@ -26,7 +26,8 @@ void DapProtocol::Setup()
 
 void DapProtocol::Reset() { Setup(); }
 
-uint32_t DapProtocol::ExecuteCommand(const uint8_t* request, uint8_t* response, bool in_isr)
+uint32_t DapProtocol::ExecuteCommand(const uint8_t* request, uint8_t* response,
+                                     bool in_isr)
 {
   DapProtocol::CommandResult r = ProcessCommand(request, response, in_isr);
   return r.response_generated;
@@ -202,7 +203,8 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
                                      // (length) + n (data) bytes.
 }
 
-DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_t* res, bool in_isr)
+DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_t* res,
+                                                      bool in_isr)
 {
   const auto port = static_cast<Port>(req[0]);
   LibXR::ErrorCode success = LibXR::ErrorCode::FAILED;
@@ -293,25 +295,36 @@ LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
   // and SCK generates 64 clock cycles.
   const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-  err = io_.spi.Write({high_bits, sizeof(high_bits)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
-  if (err != LibXR::ErrorCode::OK)
+  if (in_isr)
   {
-    return err;
+    // ISR context - use Operation POLLING mode for non-blocking writes
+    // SPI and GPIO configuration already done above
+    StartSwdSequence();
+    return LibXR::ErrorCode::OK;  // Operation will complete asynchronously
   }
-
-  // Send the 16-bit JTAG-to-SWD sequence (0xE79E), MSB first.
-  const uint8_t swd_seq[2] = {0xE7, 0x9E};
-  err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
-  if (err != LibXR::ErrorCode::OK)
+  else
   {
-    return err;
-  }
+    // Use polling approach for non-ISR context
+    err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
+    if (err != LibXR::ErrorCode::OK)
+    {
+      return err;
+    }
 
-  // Finalize with > 50 SWCLK cycles with SWDIO (TMS) high.
-  err = io_.spi.Write({high_bits, sizeof(high_bits)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
-  if (err != LibXR::ErrorCode::OK)
-  {
-    return err;
+    // Send the 16-bit JTAG-to-SWD sequence (0xE79E), MSB first.
+    const uint8_t swd_seq[2] = {0xE7, 0x9E};
+    err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, spi_write_op_);
+    if (err != LibXR::ErrorCode::OK)
+    {
+      return err;
+    }
+
+    // Finalize with > 50 SWCLK cycles with SWDIO (TMS) high.
+    err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
+    if (err != LibXR::ErrorCode::OK)
+    {
+      return err;
+    }
   }
 
   // Now the target is in SWD mode. The port is ready.
@@ -368,10 +381,21 @@ LibXR::ErrorCode DapProtocol::SetupJtag(bool in_isr)
   io_.gpio_swdio.Write(true);                 // TMS high
   const uint8_t high_bits_reset[1] = {0xFF};  // 8 bits of 0xFF = 8 TCK cycles
 
-  err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
-  if (err != LibXR::ErrorCode::OK)
+  if (in_isr)
   {
-    return err;
+    // ISR context - use Operation POLLING mode for non-blocking writes
+    // SPI and GPIO configuration already done above
+    StartJtagSequence();
+    return LibXR::ErrorCode::OK;  // Operation will complete asynchronously
+  }
+  else
+  {
+    // Use polling approach for non-ISR context
+    err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, spi_write_op_);
+    if (err != LibXR::ErrorCode::OK)
+    {
+      return err;
+    }
   }
 
   return LibXR::ErrorCode::OK;
@@ -467,6 +491,129 @@ DapProtocol::CommandResult DapProtocol::HandleResetTarget(uint8_t* res)
   // TODO: Implement actual target reset if needed
   res[0] = 0x00;  // Status: OK
   return {0, 1};  // Consume 0 bytes, produce 1 byte response
+}
+
+void DapProtocol::StartSwdSequence()
+{
+  // Start the SWD sequence - configuration already done
+  io_.gpio_swdio.Write(true);  // SWDIO high
+  swd_ctx_.state = SwdContext::State::SETUP_HIGH_BITS_1;
+  static const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  swd_ctx_.current_data = high_bits;
+  swd_ctx_.current_length = sizeof(high_bits);
+
+  ProcessNextStep();
+}
+
+void DapProtocol::StartJtagSequence()
+{
+  // Start the JTAG reset sequence - configuration already done
+  io_.gpio_swdio.Write(true);  // TMS high
+  swd_ctx_.state = SwdContext::State::JTAG_RESET;
+  static const uint8_t high_bits_reset[1] = {0xFF};
+  swd_ctx_.current_data = high_bits_reset;
+  swd_ctx_.current_length = sizeof(high_bits_reset);
+
+  ProcessNextStep();
+}
+
+LibXR::ErrorCode DapProtocol::ProcessNextStep()
+{
+  LibXR::Operation<LibXR::ErrorCode> op_poll(swd_ctx_.polling_status);
+
+  switch (swd_ctx_.state)
+  {
+    case SwdContext::State::IDLE:
+      return LibXR::ErrorCode::OK;
+
+    case SwdContext::State::SETUP_HIGH_BITS_1:
+    {
+      static const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF,
+                                           0xFF, 0xFF, 0xFF, 0xFF};
+      swd_ctx_.current_data = high_bits;
+      swd_ctx_.current_length = sizeof(high_bits);
+      swd_ctx_.polling_status =
+          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
+      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
+    }
+
+    case SwdContext::State::SETUP_SWD_SEQ:
+    {
+      static const uint8_t swd_seq[2] = {0xE7, 0x9E};
+      swd_ctx_.current_data = swd_seq;
+      swd_ctx_.current_length = sizeof(swd_seq);
+      swd_ctx_.polling_status =
+          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
+      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
+    }
+
+    case SwdContext::State::SETUP_HIGH_BITS_2:
+    {
+      static const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF,
+                                           0xFF, 0xFF, 0xFF, 0xFF};
+      swd_ctx_.current_data = high_bits;
+      swd_ctx_.current_length = sizeof(high_bits);
+      swd_ctx_.polling_status =
+          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
+      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
+    }
+
+    case SwdContext::State::JTAG_RESET:
+    {
+      static const uint8_t high_bits_reset[1] = {0xFF};
+      swd_ctx_.current_data = high_bits_reset;
+      swd_ctx_.current_length = sizeof(high_bits_reset);
+      swd_ctx_.polling_status =
+          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
+      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
+    }
+
+    default:
+      return LibXR::ErrorCode::FAILED;
+  }
+}
+
+void DapProtocol::ContinueSequence()
+{
+  // Check if the current operation is complete
+  if (swd_ctx_.polling_status !=
+      LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::DONE)
+  {
+    return;  // Still running, wait for completion
+  }
+
+  // Move to next state based on current state
+  switch (swd_ctx_.state)
+  {
+    case SwdContext::State::SETUP_HIGH_BITS_1:
+      swd_ctx_.state = SwdContext::State::SETUP_SWD_SEQ;
+      ProcessNextStep();
+      break;
+
+    case SwdContext::State::SETUP_SWD_SEQ:
+      swd_ctx_.state = SwdContext::State::SETUP_HIGH_BITS_2;
+      ProcessNextStep();
+      break;
+
+    case SwdContext::State::SETUP_HIGH_BITS_2:
+      swd_ctx_.state = SwdContext::State::COMPLETE;
+      break;
+
+    case SwdContext::State::JTAG_RESET:
+      swd_ctx_.state = SwdContext::State::COMPLETE;
+      break;
+
+    case SwdContext::State::COMPLETE:
+    case SwdContext::State::ERROR:
+    case SwdContext::State::IDLE:
+      // Sequence complete or in error state
+      break;
+
+    default:
+      swd_ctx_.state = SwdContext::State::ERROR;
+      swd_ctx_.error = LibXR::ErrorCode::FAILED;
+      break;
+  }
 }
 
 }  // namespace DAP
