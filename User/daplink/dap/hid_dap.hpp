@@ -89,7 +89,7 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
     }
 
     // Execute DAP command using the CMSIS-DAP protocol engine
-    size_t response_len = dap_engine_.ExecuteCommand(request, response_buffer_.data());
+    size_t response_len = dap_engine_.ExecuteCommand(request, response_buffer_.data(), in_isr);
 
     // Send response via interrupt IN endpoint (CMSIS-DAP V1 standard method)
     if (response_len > 0)

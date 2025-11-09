@@ -21,21 +21,21 @@ void DapProtocol::Setup()
 
 void DapProtocol::Reset() { Setup(); }
 
-uint32_t DapProtocol::ExecuteCommand(const uint8_t* request, uint8_t* response)
+uint32_t DapProtocol::ExecuteCommand(const uint8_t* request, uint8_t* response, bool in_isr)
 {
-  DapProtocol::CommandResult r = ProcessCommand(request, response);
+  DapProtocol::CommandResult r = ProcessCommand(request, response, in_isr);
   return r.response_generated;
 }
 
 DapProtocol::CommandResult DapProtocol::ProcessCommand(const uint8_t* request,
-                                                       uint8_t* response)
+                                                       uint8_t* response, bool in_isr)
 {
   const auto command = static_cast<CommandId>(request[0]);  ///< Command ID
 
   // Set debug pattern in bytes 62-63 to verify this function is called
   if (response[0] == 0x00 || response[0] == 0x02)
   {  // DAP_Info or DAP_Connect
-    // We'll set this later after processing
+     // We'll set this later after processing
   }
 
   // We consumed the command byte.
@@ -50,10 +50,10 @@ DapProtocol::CommandResult DapProtocol::ProcessCommand(const uint8_t* request,
       result = HandleInfo(payload, response_payload);
       break;
     case CommandId::Connect:
-      result = HandleConnect(payload, response_payload);
+      result = HandleConnect(payload, response_payload, in_isr);
       break;
     case CommandId::Disconnect:
-      result = HandleDisconnect(response_payload);
+      result = HandleDisconnect(response_payload, in_isr);
       break;
 
     // Essential SWD commands for OpenOCD
@@ -197,7 +197,7 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
                                      // (length) + n (data) bytes.
 }
 
-DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_t* res, bool in_isr)
 {
   const auto port = static_cast<Port>(req[0]);
   LibXR::ErrorCode success = LibXR::ErrorCode::FAILED;
@@ -208,15 +208,15 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
   {
     // Autodetect: default to SWD since that's what we support
     selected_port = Port::SWD;
-    success = SetupSwd();
+    success = SetupSwd(in_isr);
   }
   else if (port == Port::SWD)
   {
-    success = SetupSwd();
+    success = SetupSwd(in_isr);
   }
   else if (port == Port::JTAG)
   {
-    success = SetupJtag();
+    // success = SetupJtag(in_isr);
   }
 
   // Set response based on success (CMSIS-DAP V1 spec: 1 byte response)
@@ -227,7 +227,7 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
   }
   else
   {
-    PortOff();
+    PortOff(in_isr);
     state_.debug_port = DapPort::DISABLED;
     res[0] = static_cast<uint8_t>(Port::Disabled);  // 0x00 indicates failure
   }
@@ -235,19 +235,17 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
   return {1, 1};  // Consumed 1 payload byte (port), produced 1 response byte
 }
 
-DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res, bool in_isr)
 {
   state_.debug_port = DapPort::DISABLED;
-  PortOff();
+  PortOff(in_isr);
 
   res[0] = static_cast<uint8_t>(Status::OK);
   return {0, 1};  // Consumed 0 payload bytes, produced 1 response byte
 }
 
-LibXR::ErrorCode DapProtocol::SetupSwd()
+LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
 {
-  LibXR::Semaphore sem;
-  LibXR::WriteOperation op_block(sem, 100);  // 100 ms timeout
   LibXR::ErrorCode err;
 
   // Configure SPI to generate SWCLK (SPI Mode 0 is typical for SWD)
@@ -289,7 +287,7 @@ LibXR::ErrorCode DapProtocol::SetupSwd()
   // We send 8 bytes of 0xFF. MOSI (connected to SWDIO) is held high,
   // and SCK generates 64 clock cycles.
   const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-  err = io_.spi.Write({high_bits, sizeof(high_bits)}, op_block);
+  err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
@@ -297,14 +295,14 @@ LibXR::ErrorCode DapProtocol::SetupSwd()
 
   // Send the 16-bit JTAG-to-SWD sequence (0xE79E), MSB first.
   const uint8_t swd_seq[2] = {0xE7, 0x9E};
-  err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, op_block);
+  err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
   }
 
   // Finalize with > 50 SWCLK cycles with SWDIO (TMS) high.
-  err = io_.spi.Write({high_bits, sizeof(high_bits)}, op_block);
+  err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;

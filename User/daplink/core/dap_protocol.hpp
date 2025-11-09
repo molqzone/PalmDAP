@@ -34,9 +34,10 @@ class DapProtocol
    * Main entry point for DAP protocol processing.
    * @param request Pointer to request buffer (contains command ID and parameters)
    * @param response Pointer to response buffer (will be filled with response data)
+   * @param in_isr Whether this command is being executed in an interrupt context
    * @return Total response length in bytes
    */
-  uint32_t ExecuteCommand(const uint8_t* request, uint8_t* response);
+  uint32_t ExecuteCommand(const uint8_t* request, uint8_t* response, bool in_isr = false);
 
   /**
    * @brief Reset protocol state
@@ -145,9 +146,9 @@ class DapProtocol
     InfoHandler handler;
   };
 
-  LibXR::ErrorCode SetupSwd();
-  LibXR::ErrorCode SetupJtag();
-  void PortOff();
+  LibXR::ErrorCode SetupSwd(bool in_isr = false);
+  LibXR::ErrorCode SetupJtag(bool in_isr = false);
+  void PortOff(bool in_isr = false);
 };
 
 }  // namespace DAP
