@@ -8,7 +8,12 @@
 namespace DAP
 {
 
-DapProtocol::DapProtocol(DapIo& io) : io_(io), spi_sem_(0), spi_write_op_(spi_sem_, 100)
+DapProtocol::DapProtocol(DapIo& io)
+    : io_(io),
+      spi_sem_(0),
+      spi_write_op_(spi_sem_, 100),
+      spi_isr_polling_status_(LibXR::WriteOperation::OperationPollingStatus::READY),
+      spi_isr_write_op_(spi_isr_polling_status_)
 {
   Setup();
 }
@@ -287,7 +292,8 @@ LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
   // We send 8 bytes of 0xFF. MOSI (connected to SWDIO) is held high,
   // and SCK generates 64 clock cycles.
   const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-  err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
+
+  err = io_.spi.Write({high_bits, sizeof(high_bits)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
@@ -295,14 +301,14 @@ LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
 
   // Send the 16-bit JTAG-to-SWD sequence (0xE79E), MSB first.
   const uint8_t swd_seq[2] = {0xE7, 0x9E};
-  err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, spi_write_op_);
+  err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
   }
 
   // Finalize with > 50 SWCLK cycles with SWDIO (TMS) high.
-  err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
+  err = io_.spi.Write({high_bits, sizeof(high_bits)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
@@ -361,7 +367,8 @@ LibXR::ErrorCode DapProtocol::SetupJtag(bool in_isr)
   // by sending at least 5 TCK cycles with TMS high.
   io_.gpio_swdio.Write(true);                 // TMS high
   const uint8_t high_bits_reset[1] = {0xFF};  // 8 bits of 0xFF = 8 TCK cycles
-  err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, spi_write_op_);
+
+  err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, in_isr ? spi_isr_write_op_ : spi_write_op_);
   if (err != LibXR::ErrorCode::OK)
   {
     return err;
@@ -372,6 +379,8 @@ LibXR::ErrorCode DapProtocol::SetupJtag(bool in_isr)
 
 void DapProtocol::PortOff(bool in_isr)
 {
+  UNUSED(in_isr);
+
   // Configure all relevant GPIOs as high-impedance inputs.
   // This prevents the debug probe from driving any lines when disconnected.
   io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});

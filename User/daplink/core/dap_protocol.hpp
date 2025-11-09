@@ -52,6 +52,8 @@ class DapProtocol
   // SPI operation synchronization objects - public for external access
   LibXR::Semaphore spi_sem_;
   LibXR::WriteOperation spi_write_op_;
+  LibXR::WriteOperation::OperationPollingStatus spi_isr_polling_status_;
+  LibXR::WriteOperation spi_isr_write_op_;
 
  private:
   struct JtagDevice
