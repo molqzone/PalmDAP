@@ -8,15 +8,7 @@
 namespace DAP
 {
 
-DapProtocol::DapProtocol(DapIo& io)
-    : io_(io),
-      spi_sem_(0),
-      spi_write_op_(spi_sem_, 100),
-      spi_isr_polling_status_(LibXR::WriteOperation::OperationPollingStatus::READY),
-      spi_isr_write_op_(spi_isr_polling_status_)
-{
-  Setup();
-}
+DapProtocol::DapProtocol(DapIo& io) : io_(io), spi_sem_(0) { Setup(); }
 
 void DapProtocol::Setup()
 {
@@ -26,82 +18,71 @@ void DapProtocol::Setup()
 
 void DapProtocol::Reset() { Setup(); }
 
-uint32_t DapProtocol::ExecuteCommand(const uint8_t* request, uint8_t* response,
-                                     bool in_isr)
+uint32_t DapProtocol::ExecuteCommand(
+    const uint8_t* request, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
-  DapProtocol::CommandResult r = ProcessCommand(request, response, in_isr);
+  DapProtocol::CommandResult r = ProcessCommand(request, response_callback);
   return r.response_generated;
 }
 
-DapProtocol::CommandResult DapProtocol::ProcessCommand(const uint8_t* request,
-                                                       uint8_t* response, bool in_isr)
+DapProtocol::CommandResult DapProtocol::ProcessCommand(
+    const uint8_t* request, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   const auto command = static_cast<CommandId>(request[0]);  ///< Command ID
-
-  // Set debug pattern in bytes 62-63 to verify this function is called
-  if (response[0] == 0x00 || response[0] == 0x02)
-  {  // DAP_Info or DAP_Connect
-     // We'll set this later after processing
-  }
-
-  // We consumed the command byte.
-  const uint8_t* payload = request + 1;      ///< Pointer to request payload area
-  uint8_t* response_payload = response + 1;  ///< Pointer to response payload area
+  const uint8_t* payload = request + 1;  ///< Pointer to request payload area
 
   CommandResult result;  ///< Command processing result
 
   switch (command)
   {
     case CommandId::Info:
-      result = HandleInfo(payload, response_payload);
+      result = HandleInfo(payload, response_callback);
       break;
     case CommandId::Connect:
-      result = HandleConnect(payload, response_payload, in_isr);
+      result = HandleConnect(payload, response_callback);
       break;
     case CommandId::Disconnect:
-      result = HandleDisconnect(response_payload, in_isr);
+      result = HandleDisconnect(response_callback);
       break;
 
     // Essential SWD commands for OpenOCD
     case CommandId::SWJ_Pins:
-      result = HandleSwjPins(payload, response_payload);
+      result = HandleSwjPins(payload, response_callback);
       break;
     case CommandId::SWJ_Clock:
-      result = HandleSwjClock(payload, response_payload);
+      result = HandleSwjClock(payload, response_callback);
       break;
     case CommandId::SWJ_Sequence:
-      result = HandleSwjSequence(payload, response_payload);
+      result = HandleSwjSequence(payload, response_callback);
       break;
     case CommandId::SWD_Configure:
-      result = HandleSwdConfigure(payload, response_payload);
+      result = HandleSwdConfigure(payload, response_callback);
       break;
     case CommandId::SWD_Sequence:
-      result = HandleSwdSequence(payload, response_payload);
+      result = HandleSwdSequence(payload, response_callback);
       break;
     case CommandId::TransferConfigure:
-      result = HandleTransferConfigure(payload, response_payload);
+      result = HandleTransferConfigure(payload, response_callback);
       break;
     case CommandId::Transfer:
-      result = HandleTransfer(payload, response_payload);
+      result = HandleTransfer(payload, response_callback);
       break;
     case CommandId::TransferBlock:
-      result = HandleTransferBlock(payload, response_payload);
+      result = HandleTransferBlock(payload, response_callback);
       break;
     case CommandId::ResetTarget:
-      result = HandleResetTarget(response_payload);
+      result = HandleResetTarget(response_callback);
       break;
 
     default:
-      // Overwrite echoed command ID with Invalid for unsupported commands
-      response[0] = static_cast<uint8_t>(CommandId::Invalid);
+      // Send Invalid command response
+      static uint8_t invalid_response[] = {static_cast<uint8_t>(CommandId::Invalid)};
+      response_callback.Run(true, invalid_response, sizeof(invalid_response));
       result.response_generated = 1;  // Only the Invalid command ID
       result.request_consumed = 1;    // Only consume command byte
       break;
   }
 
-  // Total consumed = command byte + payload consumed
-  result.request_consumed += 1;
-  result.response_generated += 1;
   return result;
 }
 
@@ -123,10 +104,16 @@ static uint8_t HandleStringInfo(const char* str, uint8_t* data_ptr)
   return len;
 }
 
-DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleInfo(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   const auto info_id = static_cast<InfoId>(*req);
-  uint8_t* data_ptr = res + 1;  // Leave space for the length byte
+
+  // Create response buffer: command byte + length byte + data
+  static uint8_t response[64];
+  response[0] = static_cast<uint8_t>(CommandId::Info);
+
+  uint8_t* data_ptr = response + 2;  // Leave space for command and length bytes
   uint8_t data_length = 0;
 
   switch (info_id)
@@ -179,7 +166,6 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
       data_ptr[0] = static_cast<uint8_t>(max_packet_size & 0xFF);
       data_ptr[1] = static_cast<uint8_t>((max_packet_size >> 8) & 0xFF);
       data_length = 2;
-
       break;
     }
     case InfoId::PacketCount:
@@ -187,7 +173,6 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
       constexpr uint16_t packet_count = 1;  // NOTE: Usually 1 for USB HID
       data_ptr[0] = static_cast<uint8_t>(packet_count & 0xFF);
       data_length = 1;
-
       break;
     }
     default:
@@ -196,15 +181,19 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(const uint8_t* req, uint8_t* 
       break;
   }
 
-  res[0] = data_length;  // Write the actual length
+  response[1] = data_length;  // Write the actual length
 
-  return {1, static_cast<uint16_t>(
-                 1 + data_length)};  // Consumed 1 payload byte (info_id), produced 1
-                                     // (length) + n (data) bytes.
+  // Send response via callback
+  response_callback.Run(true, response, 2 + data_length);
+
+  return {
+      1,
+      static_cast<uint16_t>(
+          2 + data_length)};  // Consumed 1 payload byte (info_id), produced 2 + n bytes
 }
 
-DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_t* res,
-                                                      bool in_isr)
+DapProtocol::CommandResult DapProtocol::HandleConnect(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   const auto port = static_cast<Port>(req[0]);
   LibXR::ErrorCode success = LibXR::ErrorCode::FAILED;
@@ -215,43 +204,58 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(const uint8_t* req, uint8_
   {
     // Autodetect: default to SWD since that's what we support
     selected_port = Port::SWD;
-    success = SetupSwd(in_isr);
+    success = SetupSwd();
   }
   else if (port == Port::SWD)
   {
-    success = SetupSwd(in_isr);
+    success = SetupSwd();
   }
   else if (port == Port::JTAG)
   {
-    // success = SetupJtag(in_isr);
+    // success = SetupJtag();
   }
+
+  // Create response: command byte + status byte
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::Connect);
 
   // Set response based on success (CMSIS-DAP V1 spec: 1 byte response)
   if (success == LibXR::ErrorCode::OK)
   {
     state_.debug_port = static_cast<DapPort>(selected_port);
-    res[0] = static_cast<uint8_t>(selected_port);
+    response[1] = static_cast<uint8_t>(selected_port);
   }
   else
   {
-    PortOff(in_isr);
+    PortOff();
     state_.debug_port = DapPort::DISABLED;
-    res[0] = static_cast<uint8_t>(Port::Disabled);  // 0x00 indicates failure
+    response[1] = static_cast<uint8_t>(Port::Disabled);  // 0x00 indicates failure
   }
 
-  return {1, 1};  // Consumed 1 payload byte (port), produced 1 response byte
+  // Send response via callback
+  response_callback.Run(true, response, 2);
+
+  return {1, 2};  // Consumed 1 payload byte (port), produced 2 response bytes
 }
 
-DapProtocol::CommandResult DapProtocol::HandleDisconnect(uint8_t* res, bool in_isr)
+DapProtocol::CommandResult DapProtocol::HandleDisconnect(
+    LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   state_.debug_port = DapPort::DISABLED;
-  PortOff(in_isr);
+  PortOff();
 
-  res[0] = static_cast<uint8_t>(Status::OK);
-  return {0, 1};  // Consumed 0 payload bytes, produced 1 response byte
+  // Create response: command byte + status byte
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::Disconnect);
+  response[1] = static_cast<uint8_t>(Status::OK);
+
+  // Send response via callback
+  response_callback.Run(true, response, 2);
+
+  return {0, 2};  // Consumed 0 payload bytes, produced 2 response bytes
 }
 
-LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
+LibXR::ErrorCode DapProtocol::SetupSwd()
 {
   LibXR::ErrorCode err;
 
@@ -287,44 +291,36 @@ LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
     return err;
   }
 
-  // Execute the JTAG-to-SWD Switching Sequence
+  // Execute the JTAG-to-SWD Switching Sequence as single pack
 
   // Send > 50 SWCLK cycles with SWDIO (TMS) high to reset JTAG state machine.
   io_.gpio_swdio.Write(true);  // SWDIO high
-  // We send 8 bytes of 0xFF. MOSI (connected to SWDIO) is held high,
-  // and SCK generates 64 clock cycles.
-  const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-  if (in_isr)
+  // Create single pack: [64 high bits] + [JTAG-to-SWD sequence 0xE79E] + [64 high bits]
+  static const uint8_t swd_sequence_pack[] = {
+      // 64 high bits to reset JTAG state machine (8 bytes * 8 = 64 bits)
+      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      // 16-bit JTAG-to-SWD sequence (0xE79E), MSB first
+      0xE7, 0x9E,
+      // 64 high bits to finalize SWD mode
+      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+  // Use callback style for SPI write operation
+  auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
+      [](bool in_isr, int context, LibXR::ErrorCode ec)
+      {
+        // SPI write completion callback - no action needed for now
+        UNUSED(in_isr);
+        UNUSED(context);
+        UNUSED(ec);
+      },
+      0);  // context value not used
+
+  LibXR::WriteOperation spi_op(spi_callback);
+  err = io_.spi.Write({swd_sequence_pack, sizeof(swd_sequence_pack)}, spi_op);
+  if (err != LibXR::ErrorCode::OK)
   {
-    // ISR context - use Operation POLLING mode for non-blocking writes
-    // SPI and GPIO configuration already done above
-    StartSwdSequence();
-    return LibXR::ErrorCode::OK;  // Operation will complete asynchronously
-  }
-  else
-  {
-    // Use polling approach for non-ISR context
-    err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
-    if (err != LibXR::ErrorCode::OK)
-    {
-      return err;
-    }
-
-    // Send the 16-bit JTAG-to-SWD sequence (0xE79E), MSB first.
-    const uint8_t swd_seq[2] = {0xE7, 0x9E};
-    err = io_.spi.Write({swd_seq, sizeof(swd_seq)}, spi_write_op_);
-    if (err != LibXR::ErrorCode::OK)
-    {
-      return err;
-    }
-
-    // Finalize with > 50 SWCLK cycles with SWDIO (TMS) high.
-    err = io_.spi.Write({high_bits, sizeof(high_bits)}, spi_write_op_);
-    if (err != LibXR::ErrorCode::OK)
-    {
-      return err;
-    }
+    return err;
   }
 
   // Now the target is in SWD mode. The port is ready.
@@ -334,7 +330,7 @@ LibXR::ErrorCode DapProtocol::SetupSwd(bool in_isr)
   return LibXR::ErrorCode::OK;
 }
 
-LibXR::ErrorCode DapProtocol::SetupJtag(bool in_isr)
+LibXR::ErrorCode DapProtocol::SetupJtag()
 {
   LibXR::ErrorCode err;
 
@@ -378,33 +374,34 @@ LibXR::ErrorCode DapProtocol::SetupJtag(bool in_isr)
 
   // Reset the JTAG TAP controller to Test-Logic-Reset state
   // by sending at least 5 TCK cycles with TMS high.
-  io_.gpio_swdio.Write(true);                 // TMS high
-  const uint8_t high_bits_reset[1] = {0xFF};  // 8 bits of 0xFF = 8 TCK cycles
+  io_.gpio_swdio.Write(true);  // TMS high
 
-  if (in_isr)
+  // Use single byte for JTAG reset - 8 bits of 0xFF = 8 TCK cycles
+  static const uint8_t jtag_reset_pack[] = {0xFF};
+
+  // Use callback style for SPI write operation
+  auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
+      [](bool in_isr, int context, LibXR::ErrorCode ec)
+      {
+        // SPI write completion callback - no action needed for now
+        UNUSED(in_isr);
+        UNUSED(context);
+        UNUSED(ec);
+      },
+      0);  // context value not used
+
+  LibXR::WriteOperation spi_op(spi_callback);
+  err = io_.spi.Write({jtag_reset_pack, sizeof(jtag_reset_pack)}, spi_op);
+  if (err != LibXR::ErrorCode::OK)
   {
-    // ISR context - use Operation POLLING mode for non-blocking writes
-    // SPI and GPIO configuration already done above
-    StartJtagSequence();
-    return LibXR::ErrorCode::OK;  // Operation will complete asynchronously
-  }
-  else
-  {
-    // Use polling approach for non-ISR context
-    err = io_.spi.Write({high_bits_reset, sizeof(high_bits_reset)}, spi_write_op_);
-    if (err != LibXR::ErrorCode::OK)
-    {
-      return err;
-    }
+    return err;
   }
 
   return LibXR::ErrorCode::OK;
 }
 
-void DapProtocol::PortOff(bool in_isr)
+void DapProtocol::PortOff()
 {
-  UNUSED(in_isr);
-
   // Configure all relevant GPIOs as high-impedance inputs.
   // This prevents the debug probe from driving any lines when disconnected.
   io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
@@ -414,206 +411,123 @@ void DapProtocol::PortOff(bool in_isr)
 
 // Basic SWD command implementations for OpenOCD compatibility
 
-DapProtocol::CommandResult DapProtocol::HandleSwjPins(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwjPins(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual pin control if needed
-  res[0] = 0x00;  // Status: OK
-  return {1, 1};  // Consume 1 byte, produce 1 byte response
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::SWJ_Pins);
+  response[1] = 0x00;  // Status: OK
+
+  response_callback.Run(true, response, 2);
+  return {1, 2};  // Consume 1 byte, produce 2 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwjClock(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwjClock(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual clock frequency control if needed
-  res[0] = 0x00;  // Status: OK
-  return {1, 1};  // Consume 1 byte, produce 1 byte response
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::SWJ_Clock);
+  response[1] = 0x00;  // Status: OK
+
+  response_callback.Run(true, response, 2);
+  return {1, 2};  // Consume 1 byte, produce 2 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwjSequence(const uint8_t* req,
-                                                          uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwjSequence(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual SWJ sequence if needed
-  res[0] = 0x00;  // Status: OK
-  return {1, 1};  // Consume 1 byte, produce 1 byte response
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::SWJ_Sequence);
+  response[1] = 0x00;  // Status: OK
+
+  response_callback.Run(true, response, 2);
+  return {1, 2};  // Consume 1 byte, produce 2 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(const uint8_t* req,
-                                                           uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual SWD configuration if needed
-  res[0] = 0x00;  // Status: OK
-  return {1, 1};  // Consume 1 byte, produce 1 byte response
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::SWD_Configure);
+  response[1] = 0x00;  // Status: OK
+
+  response_callback.Run(true, response, 2);
+  return {1, 2};  // Consume 1 byte, produce 2 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwdSequence(const uint8_t* req,
-                                                          uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleSwdSequence(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual SWD sequence if needed
-  res[0] = 0x00;  // Status: OK
-  return {1, 1};  // Consume 1 byte, produce 1 byte response
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::SWD_Sequence);
+  response[1] = 0x00;  // Status: OK
+
+  response_callback.Run(true, response, 2);
+  return {1, 2};  // Consume 1 byte, produce 2 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransferConfigure(const uint8_t* req,
-                                                                uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleTransferConfigure(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual transfer configuration if needed
-  res[0] = 0x00;  // Status: OK
-  return {1, 1};  // Consume 1 byte, produce 1 byte response
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::TransferConfigure);
+  response[1] = 0x00;  // Status: OK
+
+  response_callback.Run(true, response, 2);
+  return {1, 2};  // Consume 1 byte, produce 2 byte response
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransfer(const uint8_t* req, uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleTransfer(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - return error for now
   // This is a critical command that needs full implementation for actual debugging
-  res[0] = 0xFF;  // Status: Error
-  res[1] = 0x00;  // No data transferred
-  return {5, 2};  // Consume 5 bytes (standard for Transfer), produce 2 bytes
+  static uint8_t response[3];
+  response[0] = static_cast<uint8_t>(CommandId::Transfer);
+  response[1] = 0xFF;  // Status: Error
+  response[2] = 0x00;  // No data transferred
+
+  response_callback.Run(true, response, 3);
+  return {5, 3};  // Consume 5 bytes (standard for Transfer), produce 3 bytes
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransferBlock(const uint8_t* req,
-                                                            uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleTransferBlock(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - return error for now
   // This is a critical command that needs full implementation for actual debugging
-  res[0] = 0xFF;  // Status: Error
-  res[1] = 0x00;  // No data transferred
-  return {5, 2};  // Consume 5 bytes (standard for TransferBlock), produce 2 bytes
+  static uint8_t response[3];
+  response[0] = static_cast<uint8_t>(CommandId::TransferBlock);
+  response[1] = 0xFF;  // Status: Error
+  response[2] = 0x00;  // No data transferred
+
+  response_callback.Run(true, response, 3);
+  return {5, 3};  // Consume 5 bytes (standard for TransferBlock), produce 3 bytes
 }
 
-DapProtocol::CommandResult DapProtocol::HandleResetTarget(uint8_t* res)
+DapProtocol::CommandResult DapProtocol::HandleResetTarget(
+    LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // Basic implementation - just return success
   // TODO: Implement actual target reset if needed
-  res[0] = 0x00;  // Status: OK
-  return {0, 1};  // Consume 0 bytes, produce 1 byte response
-}
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::ResetTarget);
+  response[1] = 0x00;  // Status: OK
 
-void DapProtocol::StartSwdSequence()
-{
-  // Start the SWD sequence - configuration already done
-  io_.gpio_swdio.Write(true);  // SWDIO high
-  swd_ctx_.state = SwdContext::State::SETUP_HIGH_BITS_1;
-  static const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-  swd_ctx_.current_data = high_bits;
-  swd_ctx_.current_length = sizeof(high_bits);
-
-  ProcessNextStep();
-}
-
-void DapProtocol::StartJtagSequence()
-{
-  // Start the JTAG reset sequence - configuration already done
-  io_.gpio_swdio.Write(true);  // TMS high
-  swd_ctx_.state = SwdContext::State::JTAG_RESET;
-  static const uint8_t high_bits_reset[1] = {0xFF};
-  swd_ctx_.current_data = high_bits_reset;
-  swd_ctx_.current_length = sizeof(high_bits_reset);
-
-  ProcessNextStep();
-}
-
-LibXR::ErrorCode DapProtocol::ProcessNextStep()
-{
-  LibXR::Operation<LibXR::ErrorCode> op_poll(swd_ctx_.polling_status);
-
-  switch (swd_ctx_.state)
-  {
-    case SwdContext::State::IDLE:
-      return LibXR::ErrorCode::OK;
-
-    case SwdContext::State::SETUP_HIGH_BITS_1:
-    {
-      static const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF,
-                                           0xFF, 0xFF, 0xFF, 0xFF};
-      swd_ctx_.current_data = high_bits;
-      swd_ctx_.current_length = sizeof(high_bits);
-      swd_ctx_.polling_status =
-          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
-      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
-    }
-
-    case SwdContext::State::SETUP_SWD_SEQ:
-    {
-      static const uint8_t swd_seq[2] = {0xE7, 0x9E};
-      swd_ctx_.current_data = swd_seq;
-      swd_ctx_.current_length = sizeof(swd_seq);
-      swd_ctx_.polling_status =
-          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
-      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
-    }
-
-    case SwdContext::State::SETUP_HIGH_BITS_2:
-    {
-      static const uint8_t high_bits[8] = {0xFF, 0xFF, 0xFF, 0xFF,
-                                           0xFF, 0xFF, 0xFF, 0xFF};
-      swd_ctx_.current_data = high_bits;
-      swd_ctx_.current_length = sizeof(high_bits);
-      swd_ctx_.polling_status =
-          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
-      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
-    }
-
-    case SwdContext::State::JTAG_RESET:
-    {
-      static const uint8_t high_bits_reset[1] = {0xFF};
-      swd_ctx_.current_data = high_bits_reset;
-      swd_ctx_.current_length = sizeof(high_bits_reset);
-      swd_ctx_.polling_status =
-          LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
-      return io_.spi.Write({swd_ctx_.current_data, swd_ctx_.current_length}, op_poll);
-    }
-
-    default:
-      return LibXR::ErrorCode::FAILED;
-  }
-}
-
-void DapProtocol::ContinueSequence()
-{
-  // Check if the current operation is complete
-  if (swd_ctx_.polling_status !=
-      LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::DONE)
-  {
-    return;  // Still running, wait for completion
-  }
-
-  // Move to next state based on current state
-  switch (swd_ctx_.state)
-  {
-    case SwdContext::State::SETUP_HIGH_BITS_1:
-      swd_ctx_.state = SwdContext::State::SETUP_SWD_SEQ;
-      ProcessNextStep();
-      break;
-
-    case SwdContext::State::SETUP_SWD_SEQ:
-      swd_ctx_.state = SwdContext::State::SETUP_HIGH_BITS_2;
-      ProcessNextStep();
-      break;
-
-    case SwdContext::State::SETUP_HIGH_BITS_2:
-      swd_ctx_.state = SwdContext::State::COMPLETE;
-      break;
-
-    case SwdContext::State::JTAG_RESET:
-      swd_ctx_.state = SwdContext::State::COMPLETE;
-      break;
-
-    case SwdContext::State::COMPLETE:
-    case SwdContext::State::ERROR:
-    case SwdContext::State::IDLE:
-      // Sequence complete or in error state
-      break;
-
-    default:
-      swd_ctx_.state = SwdContext::State::ERROR;
-      swd_ctx_.error = LibXR::ErrorCode::FAILED;
-      break;
-  }
+  response_callback.Run(true, response, 2);
+  return {0, 2};  // Consume 0 bytes, produce 2 byte response
 }
 
 }  // namespace DAP

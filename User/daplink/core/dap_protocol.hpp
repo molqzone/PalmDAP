@@ -33,11 +33,11 @@ class DapProtocol
    * @brief Execute DAP command
    * Main entry point for DAP protocol processing.
    * @param request Pointer to request buffer (contains command ID and parameters)
-   * @param response Pointer to response buffer (will be filled with response data)
-   * @param in_isr Whether this command is being executed in an interrupt context
+   * @param response_callback Callback to send response data
    * @return Total response length in bytes
    */
-  uint32_t ExecuteCommand(const uint8_t* request, uint8_t* response, bool in_isr = false);
+  uint32_t ExecuteCommand(const uint8_t* request,
+                          LibXR::Callback<const uint8_t*, size_t> response_callback);
 
   /**
    * @brief Reset protocol state
@@ -51,9 +51,6 @@ class DapProtocol
 
   // SPI operation synchronization objects - public for external access
   LibXR::Semaphore spi_sem_;
-  LibXR::WriteOperation spi_write_op_;
-  LibXR::WriteOperation::OperationPollingStatus spi_isr_polling_status_;
-  LibXR::WriteOperation spi_isr_write_op_;
 
  private:
   struct JtagDevice
@@ -103,27 +100,46 @@ class DapProtocol
 
   // Core Processing
   void Setup();
-  CommandResult ProcessCommand(const uint8_t* request, uint8_t* response, bool in_isr = false);
+  CommandResult ProcessCommand(const uint8_t* request,
+                               LibXR::Callback<const uint8_t*, size_t> response_callback);
 
   // Command Handlers
-  CommandResult HandleInfo(const uint8_t* req, uint8_t* res);
-  CommandResult HandleHostStatus(const uint8_t* req, uint8_t* res);
-  CommandResult HandleConnect(const uint8_t* req, uint8_t* res, bool in_isr = false);
-  CommandResult HandleDisconnect(uint8_t* res, bool in_isr = false);
-  CommandResult HandleTransferConfigure(const uint8_t* req, uint8_t* res);
-  CommandResult HandleTransfer(const uint8_t* req, uint8_t* res);
-  CommandResult HandleTransferBlock(const uint8_t* req, uint8_t* res);
-  CommandResult HandleWriteAbort(const uint8_t* req, uint8_t* res);
-  CommandResult HandleDelay(const uint8_t* req, uint8_t* res);
-  CommandResult HandleResetTarget(uint8_t* res);
-  CommandResult HandleSwjPins(const uint8_t* req, uint8_t* res);
-  CommandResult HandleSwjClock(const uint8_t* req, uint8_t* res);
-  CommandResult HandleSwjSequence(const uint8_t* req, uint8_t* res);
-  CommandResult HandleSwdConfigure(const uint8_t* req, uint8_t* res);
-  CommandResult HandleSwdSequence(const uint8_t* req, uint8_t* res);
-  CommandResult HandleJtagSequence(const uint8_t* req, uint8_t* res);
-  CommandResult HandleJtagConfigure(const uint8_t* req, uint8_t* res);
-  CommandResult HandleJtagIdcode(const uint8_t* req, uint8_t* res);
+  CommandResult HandleInfo(const uint8_t* req,
+                           LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleHostStatus(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleConnect(const uint8_t* req,
+                              LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleDisconnect(
+      LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleTransferConfigure(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleTransfer(const uint8_t* req,
+                               LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleTransferBlock(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleWriteAbort(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleDelay(const uint8_t* req,
+                            LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleResetTarget(
+      LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleSwjPins(const uint8_t* req,
+                              LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleSwjClock(const uint8_t* req,
+                               LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleSwjSequence(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleSwdConfigure(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleSwdSequence(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleJtagSequence(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleJtagConfigure(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
+  CommandResult HandleJtagIdcode(
+      const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);
 
   // Transfer Operations
   CommandResult SwdTransfer(const uint8_t* req, uint8_t* res);
@@ -138,7 +154,8 @@ class DapProtocol
  private:
   struct SwdContext
   {
-    enum class State {
+    enum class State
+    {
       IDLE,
       SETUP_HIGH_BITS_1,
       SETUP_SWD_SEQ,
@@ -161,10 +178,6 @@ class DapProtocol
   DapIo& io_;
 
   State state_;
-  uint8_t response_buffer_[kMaxResponseSize];
-
-  // ISR context management
-  SwdContext swd_ctx_;
 
   using InfoHandler = std::function<uint8_t(uint8_t* response_data_buffer)>;
   struct InfoEntry
@@ -173,15 +186,9 @@ class DapProtocol
     InfoHandler handler;
   };
 
-  LibXR::ErrorCode SetupSwd(bool in_isr = false);
-  LibXR::ErrorCode SetupJtag(bool in_isr = false);
-  void PortOff(bool in_isr = false);
-
-  // ISR-safe SPI operations using Operation model
-  void StartSwdSequence();
-  void StartJtagSequence();
-  LibXR::ErrorCode ProcessNextStep();
-  void ContinueSequence();
+  LibXR::ErrorCode SetupSwd();
+  LibXR::ErrorCode SetupJtag();
+  void PortOff();
 };
 
 }  // namespace DAP

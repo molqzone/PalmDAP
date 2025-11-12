@@ -77,5 +77,5 @@
     },
     "C_Cpp.intelliSenseEngine": "default",
     "C_Cpp.errorSquiggles": "enabled",
-    "cortex-debug.openocdPath.linux": "/home/keruth/Development/MRS_Toolchain_Linux_x64_V210/OpenOCD/OpenOCD/bin/openocd",
+    "cortex-debug.openocdPath.linux": "/home/keruth/Development/mrs-toolchain/OpenOCD/OpenOCD/bin/openocd",
 }

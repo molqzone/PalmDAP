@@ -43,8 +43,6 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
  private:
   DAP::DapProtocol dap_engine_;
 
-  std::array<uint8_t, 64> response_buffer_{};
-
  protected:
   ConstRawData GetReportDesc() override
   {
@@ -57,7 +55,9 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
     // CMSIS-DAP doesn't use report IDs, but accept any for compatibility
     (void)report_id;
 
-    result.read_data = {response_buffer_.data(), response_buffer_.size()};
+    // Provide a dummy buffer for the control transfer setup - actual responses sent via callback
+    static uint8_t dummy_buffer[64];
+    result.read_data = {dummy_buffer, sizeof(dummy_buffer)};
 
     return ErrorCode::OK;
   }
@@ -88,31 +88,26 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
       return ErrorCode::OK;
     }
 
-    // Execute DAP command using the CMSIS-DAP protocol engine
-    size_t response_len =
-        dap_engine_.ExecuteCommand(request, response_buffer_.data(), in_isr);
+    // Create callback to send DAP responses via SendInputReport
+    auto response_callback = LibXR::Callback<const uint8_t*, size_t>::Create(
+        [](bool in_isr, HIDCmsisDap* self, const uint8_t* response_data, size_t response_len) {
+          UNUSED(in_isr);
 
-    // Send response via interrupt IN endpoint (CMSIS-DAP V1 standard method)
-    if (response_len > 0)
-    {
-      // Create 64-byte response buffer padded with zeros (CMSIS-DAP standard)
-      static uint8_t response_packet[64];
-      std::memset(response_packet, 0, sizeof(response_packet));
+          // Create 64-byte response buffer padded with zeros (CMSIS-DAP standard)
+          static uint8_t response_packet[64];
+          std::memset(response_packet, 0, sizeof(response_packet));
 
-      // Copy response data (max 64 bytes) - preserve the actual DAP response format
-      size_t copy_len = (response_len > 64) ? 64 : response_len;
-      std::memcpy(response_packet, response_buffer_.data(), copy_len);
+          // Copy response data (max 64 bytes) - preserve the actual DAP response format
+          size_t copy_len = (response_len > 64) ? 64 : response_len;
+          std::memcpy(response_packet, response_data, copy_len);
 
-      // Send via interrupt IN endpoint
-      SendInputReport(ConstRawData{response_packet, 64});
-    }
-    else
-    {
-      // Send minimal valid response
-      static uint8_t empty_response[64] = {0};
-      empty_response[0] = request[0];  // Echo command ID
-      SendInputReport(ConstRawData{empty_response, 64});
-    }
+          // Send via interrupt IN endpoint
+          self->SendInputReport(ConstRawData{response_packet, 64});
+        },
+        this);
+
+    // Execute DAP command using the CMSIS-DAP protocol engine with callback
+    dap_engine_.ExecuteCommand(request, response_callback);
 
     return ErrorCode::OK;
   }
