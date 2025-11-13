@@ -9,7 +9,7 @@ enum class CommandId : uint8_t
 {
   // Core Commands (0x00-0x0F)
   Info = 0x00,
-  HostStatus = 0x01,
+  LED = 0x01,           // LED control (V1) / Host status (V2 compatible)
   Connect = 0x02,
   Disconnect = 0x03,
   TransferConfigure = 0x04,

@@ -152,29 +152,6 @@ class DapProtocol
   DapProtocol& operator=(const DapProtocol&) = delete;
 
  private:
-  struct SwdContext
-  {
-    enum class State
-    {
-      IDLE,
-      SETUP_HIGH_BITS_1,
-      SETUP_SWD_SEQ,
-      SETUP_HIGH_BITS_2,
-      JTAG_RESET,
-      COMPLETE,
-      ERROR
-    };
-
-    State state = State::IDLE;
-    LibXR::ErrorCode error = LibXR::ErrorCode::OK;
-    LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus polling_status =
-        LibXR::Operation<LibXR::ErrorCode>::OperationPollingStatus::READY;
-
-    // Store operation data for current step
-    const uint8_t* current_data = nullptr;
-    size_t current_length = 0;
-  };
-
   DapIo& io_;
 
   State state_;

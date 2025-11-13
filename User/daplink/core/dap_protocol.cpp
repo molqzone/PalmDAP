@@ -38,6 +38,9 @@ DapProtocol::CommandResult DapProtocol::ProcessCommand(
     case CommandId::Info:
       result = HandleInfo(payload, response_callback);
       break;
+    case CommandId::LED:
+      result = HandleHostStatus(payload, response_callback);
+      break;
     case CommandId::Connect:
       result = HandleConnect(payload, response_callback);
       break;
@@ -154,8 +157,7 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(
     {
       uint8_t capabilities = (1U << 4);
       capabilities |= (1U << 0);  // SWD support
-      // capabilities |= (1U << 1);   // JTAG support - NOT IMPLEMENTED
-      // TODO - No JTAG support for OpenOCD detection yet
+      capabilities |= (1U << 1);  // JTAG support
       data_ptr[0] = capabilities;
       data_length = 1;
       break;
@@ -212,7 +214,7 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(
   }
   else if (port == Port::JTAG)
   {
-    // success = SetupJtag();
+    success = SetupJtag();
   }
 
   // Create response: command byte + status byte
@@ -528,6 +530,23 @@ DapProtocol::CommandResult DapProtocol::HandleResetTarget(
 
   response_callback.Run(true, response, 2);
   return {0, 2};  // Consume 0 bytes, produce 2 byte response
+}
+
+DapProtocol::CommandResult DapProtocol::HandleHostStatus(
+    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
+{
+  // DAP_LED / DAP_HostStatus command handler
+  // Command format: [0x01] [LED_number] [LED_state] for LED control
+  //                 [0x01] [status] [param]   for HostStatus (V2)
+
+  static uint8_t response[2];
+  response[0] = static_cast<uint8_t>(CommandId::LED);
+  response[1] = 0x00;  // Status: OK (DAP_OK)
+
+  // For LED control, we'll accept the command but don't actually control LEDs
+  // This prevents OpenOCD from showing "not implemented" errors
+  response_callback.Run(true, response, 2);
+  return {2, 2};  // Consume 2 bytes (LED_number + LED_state), produce 2 bytes
 }
 
 }  // namespace DAP
