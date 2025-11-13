@@ -7,8 +7,8 @@
 #include "ch32_usb.hpp"
 #include "ch32_usb_dev.hpp"
 #include "ch32v30x_gpio.h"
-#include "dap/hid_dap.hpp"
 #include "dap_io.hpp"
+#include "hid_dap.hpp"
 #include "libxr.hpp"
 
 // EP0: Control, 64 bytes

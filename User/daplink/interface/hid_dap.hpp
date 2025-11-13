@@ -9,7 +9,6 @@
 namespace LibXR::USB
 {
 
-// CMSIS-DAP V1 HID Report Descriptor (matching DAPLink format)
 static constexpr uint8_t CMSIS_DAP_REPORT_DESC[] = {
     0x06, 0x00, 0xFF,  // Usage Page (Vendor Defined 0xFF00)
     0x09, 0x01,        // Usage (Vendor Usage 1)
@@ -32,10 +31,15 @@ static constexpr uint8_t CMSIS_DAP_REPORT_DESC[] = {
 class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
 {
  public:
+  /**
+   * @brief CMSIS-DAP V1 HID Interface
+   * @param io DAP I/O interface reference
+   * @param in_ep_interval IN endpoint polling interval (ms)
+   * @param out_ep_interval OUT endpoint polling interval (ms)
+   */
   HIDCmsisDap(DAP::DapIo& io, uint8_t in_ep_interval = 1, uint8_t out_ep_interval = 1)
       : HID(false, in_ep_interval, out_ep_interval, Endpoint::EPNumber::EP_AUTO,
-            Endpoint::EPNumber::EP_AUTO),  // Use control transfers only (true CMSIS-DAP
-                                           // v1)
+            Endpoint::EPNumber::EP_AUTO),
         dap_engine_(io)
   {
   }
@@ -44,30 +48,41 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
   DAP::DapProtocol dap_engine_;
 
  protected:
+  /**
+   * @brief Get HID report descriptor
+   * @return ConstRawData containing CMSIS-DAP report descriptor
+   */
   ConstRawData GetReportDesc() override
   {
     return ConstRawData(CMSIS_DAP_REPORT_DESC, sizeof(CMSIS_DAP_REPORT_DESC));
   }
 
-  // Accept SET_REPORT requests - required for CMSIS-DAP V1
+  /**
+   * @brief Handle HID SET_REPORT request
+   * @param report_id Report ID (unused for CMSIS-DAP)
+   * @param result Request result structure
+   * @return ErrorCode indicating operation status
+   */
   ErrorCode OnSetReport(uint8_t report_id, DeviceClass::RequestResult& result) override
   {
-    // CMSIS-DAP doesn't use report IDs, but accept any for compatibility
     (void)report_id;
 
-    // Provide a dummy buffer for the control transfer setup - actual responses sent via callback
     static uint8_t dummy_buffer[64];
     result.read_data = {dummy_buffer, sizeof(dummy_buffer)};
 
     return ErrorCode::OK;
   }
 
-  // Process DAP commands received via HID SET_REPORT
+  /**
+   * @brief Process DAP commands received via HID SET_REPORT
+   * @param in_isr Whether called from interrupt context
+   * @param data Command data received
+   * @return ErrorCode indicating operation status
+   */
   ErrorCode OnSetReportData(bool in_isr, ConstRawData& data) override
   {
     UNUSED(in_isr);
 
-    // Validate input data length - CMSIS-DAP requires at least 1 byte (command ID)
     if (data.size_ == 0 || data.addr_ == nullptr)
     {
       static uint8_t error_response[64] = {0};
@@ -77,36 +92,30 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
 
     const auto* request = static_cast<const uint8_t*>(data.addr_);
 
-    // Handle special TransferAbort command (like DAPLink does)
+    // Handle TransferAbort command
     if (request[0] == 0x18)  // ID_DAP_TransferAbort
     {
-      // NOTE - For now, just acknowledge the command
       static uint8_t abort_response[64] = {0};
-      abort_response[0] = request[0];  // Echo command ID
-      abort_response[1] = 0x00;        // Status: OK
+      abort_response[0] = request[0];
+      abort_response[1] = 0x00;
       SendInputReport(ConstRawData{abort_response, 64});
       return ErrorCode::OK;
     }
 
-    // Create callback to send DAP responses via SendInputReport
     auto response_callback = LibXR::Callback<const uint8_t*, size_t>::Create(
         [](bool in_isr, HIDCmsisDap* self, const uint8_t* response_data, size_t response_len) {
           UNUSED(in_isr);
 
-          // Create 64-byte response buffer padded with zeros (CMSIS-DAP standard)
           static uint8_t response_packet[64];
           std::memset(response_packet, 0, sizeof(response_packet));
 
-          // Copy response data (max 64 bytes) - preserve the actual DAP response format
           size_t copy_len = (response_len > 64) ? 64 : response_len;
           std::memcpy(response_packet, response_data, copy_len);
 
-          // Send via interrupt IN endpoint
           self->SendInputReport(ConstRawData{response_packet, 64});
         },
         this);
 
-    // Execute DAP command using the CMSIS-DAP protocol engine with callback
     dap_engine_.ExecuteCommand(request, response_callback);
 
     return ErrorCode::OK;
