@@ -8,7 +8,7 @@
 namespace DAP
 {
 
-DapProtocol::DapProtocol(DapIo& io) : io_(io), spi_sem_(0) { Setup(); }
+DapProtocol::DapProtocol(DapIo& io) : io_(io) { Setup(); }
 
 void DapProtocol::Setup()
 {

@@ -49,9 +49,6 @@ class DapProtocol
    */
   DapPort GetDebugPort() const { return state_.debug_port; }
 
-  // SPI operation synchronization objects - public for external access
-  LibXR::Semaphore spi_sem_;
-
  private:
   struct JtagDevice
   {
