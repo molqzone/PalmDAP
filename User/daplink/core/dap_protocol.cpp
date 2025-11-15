@@ -38,7 +38,7 @@ DapProtocol::CommandResult DapProtocol::ProcessCommand(
     case CommandId::Info:
       result = HandleInfo(payload, response_callback);
       break;
-    case CommandId::LED:
+    case CommandId::HostStatus:
       result = HandleHostStatus(payload, response_callback);
       break;
     case CommandId::Connect:
@@ -171,9 +171,7 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(
   response[1] = data_length;
   response_callback.Run(true, response, 2 + data_length);
 
-  return {
-      1,
-      static_cast<uint16_t>(2 + data_length)};
+  return {1, static_cast<uint16_t>(2 + data_length)};
 }
 
 DapProtocol::CommandResult DapProtocol::HandleConnect(
@@ -229,7 +227,7 @@ DapProtocol::CommandResult DapProtocol::HandleDisconnect(
 
   response_callback.Run(true, response, 2);
 
-  return {0, 2};
+  return {1, 2};
 }
 
 LibXR::ErrorCode DapProtocol::SetupSwd()
@@ -299,7 +297,6 @@ LibXR::ErrorCode DapProtocol::SetupSwd()
     return err;
   }
 
-  
   return LibXR::ErrorCode::OK;
 }
 
@@ -371,11 +368,10 @@ LibXR::ErrorCode DapProtocol::SetupJtag()
 
 void DapProtocol::PortOff()
 {
-    io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
+  io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
   io_.gpio_tdo.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::NONE});
   io_.gpio_nreset.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
 }
-
 
 DapProtocol::CommandResult DapProtocol::HandleSwjPins(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
@@ -484,15 +480,39 @@ DapProtocol::CommandResult DapProtocol::HandleResetTarget(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {0, 2};
+  return {1, 2};
 }
 
 DapProtocol::CommandResult DapProtocol::HandleHostStatus(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
+  uint8_t status = req[0];  // Status bitmask
+  (void)req[1];             // Reserved for future use (was target_state)
+
+  // LED Control based on DAPLink implementation
+  // bit 0: Connected status - controls LED when debugger is connected
+  // bit 1: Running status - controls LED when target is running
+  uint8_t connected_status = status & 0x01;
+  uint8_t running_status = (status >> 1) & 0x01;
+
+  // Control LED based on status (active-low like DAPLink)
+  // LED ON when NOT connected and NOT running (idle state)
+  bool led_on = !(connected_status || running_status);
+
+  if (led_on)
+  {
+    // LED On - Set output low (active low)
+    io_.gpio_led.Write(false);
+  }
+  else
+  {
+    // LED Off - Set output high (active low)
+    io_.gpio_led.Write(true);
+  }
+
   static uint8_t response[2];
-  response[0] = static_cast<uint8_t>(CommandId::LED);
-  response[1] = 0x00;  // Status: OK (DAP_OK)
+  response[0] = static_cast<uint8_t>(CommandId::HostStatus);  // Echo command ID
+  response[1] = 0x00;                                         // Status: OK (DAP_OK)
 
   response_callback.Run(true, response, 2);
   return {2, 2};

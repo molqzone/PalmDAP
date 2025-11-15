@@ -106,6 +106,10 @@ class DapProtocol
    *
    * Command format: [0x01] [Status] [0=Connect/1=Running]
    * Response format: [0x00=DAP_OK]
+   *
+   * Status bits:
+   * bit 0: Connected (0=Not connected, 1=Connected) - controls LED_CONNECTED
+   * bit 1: Running (0=Not running, 1=Running) - controls LED_RUNNING
    */
   CommandResult HandleHostStatus(
       const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback);

@@ -34,8 +34,9 @@ extern "C" void app_main()
   LibXR::CH32GPIO gpio_swdio(GPIOA, GPIO_Pin_8);
   LibXR::CH32GPIO gpio_tdo(GPIOA, GPIO_Pin_9);
   LibXR::CH32GPIO gpio_nreset(GPIOA, GPIO_Pin_10);
+  LibXR::CH32GPIO gpio_led(GPIOB, GPIO_Pin_4);
 
-  DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset);
+  DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset, gpio_led);
 
   LibXR::USB::HIDCmsisDap dap_interface(dap_io_instance, 1, 1);
 
