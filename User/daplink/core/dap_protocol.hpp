@@ -255,6 +255,11 @@ class DapProtocol
   LibXR::ErrorCode SetupJtag();
   void PortOff();
 
+  // SWD Transfer Helper Functions
+  void GenerateSwdRequest(uint8_t request, uint8_t* sequence, size_t& seq_len);
+  LibXR::ErrorCode SendSwdSequence(const uint8_t* sequence, size_t seq_len);
+  LibXR::ErrorCode ReceiveSwdData(uint32_t& data, uint8_t& ack);
+
   DapIo& io_;
   State state_;
 
