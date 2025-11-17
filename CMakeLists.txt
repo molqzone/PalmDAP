@@ -85,6 +85,8 @@ target_include_directories(${PROJECT_NAME}.elf PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink
   ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink/core
   ${CMAKE_CURRENT_SOURCE_DIR}/User/daplink/interface
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/spi
+  ${CMAKE_CURRENT_SOURCE_DIR}/User/xrdap
   ${CMAKE_CURRENT_SOURCE_DIR}/Peripheral/inc
 )
 
