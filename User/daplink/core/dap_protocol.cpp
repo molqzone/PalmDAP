@@ -8,7 +8,11 @@
 namespace DAP
 {
 
-DapProtocol::DapProtocol(DapIo& io) : io_(io) { Setup(); }
+DapProtocol::DapProtocol(DapIo& io, TransferMethod transfer_method)
+    : io_(io), swd_transfer_method_(transfer_method)
+{
+  Setup();
+}
 
 void DapProtocol::Setup()
 {
@@ -18,75 +22,68 @@ void DapProtocol::Setup()
 
 void DapProtocol::Reset() { Setup(); }
 
-uint32_t DapProtocol::ExecuteCommand(
+void DapProtocol::ExecuteCommand(
     const uint8_t* request, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
-  DapProtocol::CommandResult r = ProcessCommand(request, response_callback);
-  return r.response_generated;
+  ProcessCommand(request, response_callback);
 }
 
-DapProtocol::CommandResult DapProtocol::ProcessCommand(
+void DapProtocol::ProcessCommand(
     const uint8_t* request, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   const auto command = static_cast<CommandId>(request[0]);  ///< Command ID
   const uint8_t* payload = request + 1;  ///< Pointer to request payload area
 
-  CommandResult result;  ///< Command processing result
-
   switch (command)
   {
     case CommandId::Info:
-      result = HandleInfo(payload, response_callback);
+      HandleInfo(payload, response_callback);
       break;
     case CommandId::HostStatus:
-      result = HandleHostStatus(payload, response_callback);
+      HandleHostStatus(payload, response_callback);
       break;
     case CommandId::Connect:
-      result = HandleConnect(payload, response_callback);
+      HandleConnect(payload, response_callback);
       break;
     case CommandId::Disconnect:
-      result = HandleDisconnect(response_callback);
+      HandleDisconnect(response_callback);
       break;
 
     // Essential SWD commands for OpenOCD
     case CommandId::SWJ_Pins:
-      result = HandleSwjPins(payload, response_callback);
+      HandleSwjPins(payload, response_callback);
       break;
     case CommandId::SWJ_Clock:
-      result = HandleSwjClock(payload, response_callback);
+      HandleSwjClock(payload, response_callback);
       break;
     case CommandId::SWJ_Sequence:
-      result = HandleSwjSequence(payload, response_callback);
+      HandleSwjSequence(payload, response_callback);
       break;
     case CommandId::SWD_Configure:
-      result = HandleSwdConfigure(payload, response_callback);
+      HandleSwdConfigure(payload, response_callback);
       break;
     case CommandId::SWD_Sequence:
-      result = HandleSwdSequence(payload, response_callback);
+      HandleSwdSequence(payload, response_callback);
       break;
     case CommandId::TransferConfigure:
-      result = HandleTransferConfigure(payload, response_callback);
+      HandleTransferConfigure(payload, response_callback);
       break;
     case CommandId::Transfer:
-      result = HandleTransfer(payload, response_callback);
+      HandleTransfer(payload, response_callback);
       break;
     case CommandId::TransferBlock:
-      result = HandleTransferBlock(payload, response_callback);
+      HandleTransferBlock(payload, response_callback);
       break;
     case CommandId::ResetTarget:
-      result = HandleResetTarget(response_callback);
+      HandleResetTarget(response_callback);
       break;
 
     default:
       // Send Invalid command response
       static uint8_t invalid_response[] = {static_cast<uint8_t>(CommandId::Invalid)};
       response_callback.Run(true, invalid_response, sizeof(invalid_response));
-      result.response_generated = 1;
-      result.request_consumed = 1;
       break;
   }
-
-  return result;
 }
 
 static uint8_t HandleStringInfo(const char* str, uint8_t* data_ptr)
@@ -97,8 +94,8 @@ static uint8_t HandleStringInfo(const char* str, uint8_t* data_ptr)
   return len;
 }
 
-DapProtocol::CommandResult DapProtocol::HandleInfo(
-    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
+void DapProtocol::HandleInfo(const uint8_t* req,
+                             LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   const auto info_id = static_cast<InfoId>(*req);
 
@@ -170,12 +167,10 @@ DapProtocol::CommandResult DapProtocol::HandleInfo(
 
   response[1] = data_length;
   response_callback.Run(true, response, 2 + data_length);
-
-  return {1, static_cast<uint16_t>(2 + data_length)};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleConnect(
-    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
+void DapProtocol::HandleConnect(const uint8_t* req,
+                                LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   const auto port = static_cast<Port>(req[0]);
   LibXR::ErrorCode success = LibXR::ErrorCode::FAILED;
@@ -211,11 +206,9 @@ DapProtocol::CommandResult DapProtocol::HandleConnect(
   }
 
   response_callback.Run(true, response, 2);
-
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleDisconnect(
+void DapProtocol::HandleDisconnect(
     LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   state_.debug_port = DapPort::DISABLED;
@@ -226,8 +219,6 @@ DapProtocol::CommandResult DapProtocol::HandleDisconnect(
   response[1] = static_cast<uint8_t>(Status::OK);
 
   response_callback.Run(true, response, 2);
-
-  return {1, 2};
 }
 
 LibXR::ErrorCode DapProtocol::SetupSwd()
@@ -373,8 +364,8 @@ void DapProtocol::PortOff()
   io_.gpio_nreset.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwjPins(
-    const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
+void DapProtocol::HandleSwjPins(const uint8_t* req,
+                                LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual pin control if needed
   static uint8_t response[2];
@@ -382,10 +373,9 @@ DapProtocol::CommandResult DapProtocol::HandleSwjPins(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwjClock(
+void DapProtocol::HandleSwjClock(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual clock frequency control if needed
@@ -394,10 +384,9 @@ DapProtocol::CommandResult DapProtocol::HandleSwjClock(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwjSequence(
+void DapProtocol::HandleSwjSequence(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual SWJ sequence if needed
@@ -406,10 +395,9 @@ DapProtocol::CommandResult DapProtocol::HandleSwjSequence(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(
+void DapProtocol::HandleSwdConfigure(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual SWD configuration if needed
@@ -418,10 +406,9 @@ DapProtocol::CommandResult DapProtocol::HandleSwdConfigure(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleSwdSequence(
+void DapProtocol::HandleSwdSequence(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual SWD sequence if needed
@@ -430,10 +417,9 @@ DapProtocol::CommandResult DapProtocol::HandleSwdSequence(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransferConfigure(
+void DapProtocol::HandleTransferConfigure(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual transfer configuration if needed
@@ -442,232 +428,86 @@ DapProtocol::CommandResult DapProtocol::HandleTransferConfigure(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-// Helper function to generate SWD request sequence
-void DapProtocol::GenerateSwdRequest(uint8_t request, uint8_t* sequence, size_t& seq_len)
-{
-  seq_len = 0;
-
-  // Start bit (always 0)
-  sequence[seq_len++] = 0;
-
-  // APnDP bit
-  sequence[seq_len++] = (request & DAP_TRANSFER_APnDP) ? 1 : 0;
-
-  // RnW bit
-  sequence[seq_len++] = (request & DAP_TRANSFER_RnW) ? 1 : 0;
-
-  // Address bits (A2, A3)
-  sequence[seq_len++] = (request & DAP_TRANSFER_A2) ? 1 : 0;
-  sequence[seq_len++] = (request & DAP_TRANSFER_A3) ? 1 : 0;
-
-  // Parity bit
-  uint8_t parity =
-      ((request & DAP_TRANSFER_APnDP) ? 1 : 0) ^ ((request & DAP_TRANSFER_RnW) ? 1 : 0) ^
-      ((request & DAP_TRANSFER_A2) ? 1 : 0) ^ ((request & DAP_TRANSFER_A3) ? 1 : 0);
-  sequence[seq_len++] = parity;
-
-  // Stop bit (always 1) and Park bit (always 1)
-  sequence[seq_len++] = 1;
-  sequence[seq_len++] = 1;
-}
-
-// Helper function to send SWD sequence via SPI
-LibXR::ErrorCode DapProtocol::SendSwdSequence(const uint8_t* sequence, size_t seq_len)
-{
-  // Convert bit sequence to bytes for SPI transmission
-  static uint8_t spi_data[16];
-  size_t byte_len = (seq_len + 7) / 8;
-
-  // Clear SPI data buffer
-  std::memset(spi_data, 0, byte_len);
-
-  // Pack bits into bytes (MSB first as per SWD protocol)
-  for (size_t i = 0; i < seq_len; i++)
-  {
-    if (sequence[i])
-    {
-      spi_data[i / 8] |= (1U << (7 - (i % 8)));
-    }
-  }
-
-  // Set SWDIO as output for transmission
-  io_.gpio_swdio.SetConfig(
-      {LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
-
-  // Send sequence via SPI (SWCLK generated by SPI clock)
-  auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
-      [](bool in_isr, int context, LibXR::ErrorCode ec)
-      {
-        UNUSED(in_isr);
-        UNUSED(context);
-        UNUSED(ec);
-      },
-      0);
-
-  LibXR::WriteOperation spi_op(spi_callback);
-  return io_.spi.Write({spi_data, byte_len}, spi_op);
-}
-
-// Helper function to receive SWD data via SPI
-LibXR::ErrorCode DapProtocol::ReceiveSwdData(uint32_t& data, uint8_t& ack)
-{
-  // Set SWDIO as input for reception
-  io_.gpio_swdio.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
-
-  // Turnaround cycles (1 clock cycle)
-  static const uint8_t turnaround_seq[1] = {0x00};  // Drive low for 1 clock
-
-  auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
-      [](bool in_isr, int context, LibXR::ErrorCode ec)
-      {
-        UNUSED(in_isr);
-        UNUSED(context);
-        UNUSED(ec);
-      },
-      0);
-
-  LibXR::WriteOperation spi_op(spi_callback);
-  io_.spi.Write({turnaround_seq, 1}, spi_op);
-
-  // For now, simulate a successful response
-  // TODO: Implement actual SPI read operation to capture SWDIO input
-  ack = 0x01;         // DAP_TRANSFER_OK
-  data = 0x0BB11477;  // Typical Cortex-M DP IDCODE value
-
-  return LibXR::ErrorCode::OK;
-}
-
-DapProtocol::CommandResult DapProtocol::HandleTransfer(
+void DapProtocol::HandleTransfer(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
-  if (state_.debug_port == DapPort::DISABLED)
+  if (state_.debug_port == DapPort::DISABLED || !swd_transfer_method_)
   {
     static uint8_t response[2];
     response[0] = static_cast<uint8_t>(CommandId::Transfer);
-    response[1] = 0x07;  // DAP_TRANSFER_NO_TARGET
+    response[1] = DAP_TRANSFER_NO_TARGET;
     response_callback.Run(true, response, 2);
-    return {1, 2};
+    return;
   }
 
   const uint8_t dap_index = req[0];
   const uint8_t transfer_count = req[1];
   const uint8_t* transfer_requests = req + 2;
+  const uint8_t* write_data_ptr =
+      transfer_requests + transfer_count;  // Write data follows requests
 
-  static uint8_t response[64];
+  static uint8_t response[256];
   response[0] = static_cast<uint8_t>(CommandId::Transfer);
   response[1] = transfer_count;  // Echo transfer count
 
-  size_t response_pos = 2;
-  uint8_t transfer_status = 0;  // Accumulate status bits
+  size_t response_data_pos = 2;
+  uint8_t transfer_status = 0;
+  size_t write_data_offset = 0;
 
   // Process each transfer request
   for (uint8_t i = 0; i < transfer_count; i++)
   {
     const uint8_t request = transfer_requests[i];
+    bool is_read = (request & DAP_TRANSFER_RnW);
+    uint32_t write_data = 0;
 
-    // Check if this is a read operation (RnW = 1)
-    if (request & DAP_TRANSFER_RnW)
+    // Extract write data for write operations
+    if (!is_read && write_data_ptr != nullptr)
     {
-      // Extract address bits
-      bool is_dp = !(request & DAP_TRANSFER_APnDP);
-      uint8_t addr = ((request & DAP_TRANSFER_A3) ? (1U << 3) : 0) |
-                     ((request & DAP_TRANSFER_A2) ? (1U << 2) : 0);
-
-      // Generate SWD request sequence
-      uint8_t swd_seq[8];
-      size_t seq_len;
-      GenerateSwdRequest(request, swd_seq, seq_len);
-
-      // Send SWD request
-      LibXR::ErrorCode err = SendSwdSequence(swd_seq, seq_len);
-      if (err != LibXR::ErrorCode::OK)
-      {
-        transfer_status |= DAP_TRANSFER_ERROR;
-        break;
-      }
-
-      // Receive response data
-      uint32_t read_data;
-      uint8_t ack;
-      err = ReceiveSwdData(read_data, ack);
-
-      if (err != LibXR::ErrorCode::OK)
-      {
-        transfer_status |= DAP_TRANSFER_ERROR;
-        break;
-      }
-
-      // Check ACK response
-      if (ack == 0x01)
-      {  // DAP_TRANSFER_OK
-        // Add read data to response (little-endian)
-        response[response_pos++] = static_cast<uint8_t>(read_data & 0xFF);
-        response[response_pos++] = static_cast<uint8_t>((read_data >> 8) & 0xFF);
-        response[response_pos++] = static_cast<uint8_t>((read_data >> 16) & 0xFF);
-        response[response_pos++] = static_cast<uint8_t>((read_data >> 24) & 0xFF);
-
-        // Handle specific DP registers with known values
-        if (is_dp && addr == 0x00)
-        {  // DP_IDCODE
-          // Return a valid ARM Cortex-M DP IDCODE
-          response[response_pos - 4] = 0x77;
-          response[response_pos - 3] = 0x14;
-          response[response_pos - 2] = 0xB1;
-          response[response_pos - 1] = 0x0B;
-        }
-      }
-      else if (ack == 0x02)
-      {  // DAP_TRANSFER_WAIT
-        transfer_status |= DAP_TRANSFER_WAIT;
-        break;
-      }
-      else if (ack == 0x04)
-      {  // DAP_TRANSFER_FAULT
-        transfer_status |= DAP_TRANSFER_FAULT;
-        break;
-      }
-      else
-      {
-        transfer_status |= DAP_TRANSFER_ERROR;
-        break;
-      }
+      write_data = static_cast<uint32_t>(write_data_ptr[write_data_offset]) |
+                   (static_cast<uint32_t>(write_data_ptr[write_data_offset + 1]) << 8) |
+                   (static_cast<uint32_t>(write_data_ptr[write_data_offset + 2]) << 16) |
+                   (static_cast<uint32_t>(write_data_ptr[write_data_offset + 3]) << 24);
+      write_data_offset += 4;
     }
-    else
+
+    // Call the transfer method with parsed request data and the original response
+    // callback
+    LibXR::ErrorCode result =
+        swd_transfer_method_(request, write_data, response_callback);
+
+    // NOTE - Unknown how to handle multiple transfers properly here.
+    if (result != LibXR::ErrorCode::OK)
     {
-      // Write operation - for now, just acknowledge
-      uint8_t swd_seq[8];
-      size_t seq_len;
-      GenerateSwdRequest(request, swd_seq, seq_len);
+      // If transfer method failed, send error response immediately
+      static uint8_t error_response[2];
+      error_response[0] = static_cast<uint8_t>(CommandId::Transfer);
+      error_response[1] = DAP_TRANSFER_ERROR;
+      response_callback.Run(true, error_response, 2);
+    }
 
-      LibXR::ErrorCode err = SendSwdSequence(swd_seq, seq_len);
-      if (err != LibXR::ErrorCode::OK)
-      {
-        transfer_status |= DAP_TRANSFER_ERROR;
-        break;
-      }
-
-      // Skip write data for now
-      if (i + 1 < transfer_count)
-      {
-        i++;  // Skip the data byte
-      }
-
-      // Simulate successful write
-      transfer_status |= DAP_TRANSFER_OK;
+    // For single transfers, the transfer method should call response_callback directly
+    // For multiple transfers, we need to handle aggregation
+    if (transfer_count == 1)
+    {
+      // Single transfer - response will be handled by transfer_method callback
+      return;
     }
   }
 
-  // Add final transfer status
-  response[response_pos++] = transfer_status;
+  // For multiple transfers, send aggregated response
+  // TODO: Implement proper multiple transfer handling with response aggregation
+  static uint8_t multi_response[3];
+  multi_response[0] = static_cast<uint8_t>(CommandId::Transfer);
+  multi_response[1] = transfer_count;
+  multi_response[2] = DAP_TRANSFER_OK;  // (simplified)
 
-  response_callback.Run(true, response, response_pos);
-  return {static_cast<uint16_t>(2 + transfer_count), static_cast<uint16_t>(response_pos)};
+  response_callback.Run(true, multi_response, 3);
 }
 
-DapProtocol::CommandResult DapProtocol::HandleTransferBlock(
+void DapProtocol::HandleTransferBlock(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: This is a critical command that needs full implementation for actual debugging
@@ -677,10 +517,9 @@ DapProtocol::CommandResult DapProtocol::HandleTransferBlock(
   response[2] = 0x00;  // No data transferred
 
   response_callback.Run(true, response, 3);
-  return {5, 3};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleResetTarget(
+void DapProtocol::HandleResetTarget(
     LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   // TODO: Implement actual target reset if needed
@@ -689,10 +528,9 @@ DapProtocol::CommandResult DapProtocol::HandleResetTarget(
   response[1] = 0x00;  // Status: OK
 
   response_callback.Run(true, response, 2);
-  return {1, 2};
 }
 
-DapProtocol::CommandResult DapProtocol::HandleHostStatus(
+void DapProtocol::HandleHostStatus(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
   uint8_t status = req[0];  // Status bitmask
@@ -724,7 +562,6 @@ DapProtocol::CommandResult DapProtocol::HandleHostStatus(
   response[1] = 0x00;                                         // Status: OK (DAP_OK)
 
   response_callback.Run(true, response, 2);
-  return {2, 2};
 }
 
 }  // namespace DAP
