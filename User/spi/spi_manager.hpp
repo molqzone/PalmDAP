@@ -1,66 +1,117 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 
-#include "../xrdap/xrdap.hpp"
 #include "dap_io.hpp"
 #include "libxr.hpp"
+#include "spi_types.hpp"
 
 namespace DAP
 {
 
+/**
+ * @brief Manages SPI operations for XRDAP-SWD-Probe communication.
+ *
+ * This class handles asynchronous SPI transactions using a dedicated FreeRTOS task.
+ * It processes SPI transfer requests from a lock-free queue and manages callbacks
+ * for operation completion.
+ */
 class SpiManager
 {
  public:
-  SpiManager(DapIo& io, LibXR::LockFreeQueue<uint64_t>& request_queue);
+  /**
+   * @brief Constructs a SpiManager instance.
+   *
+   * @param io DAP I/O interface reference for SPI access.
+   * @param request_queue Lock-free queue for SPI transfer requests.
+   */
+  SpiManager(DapIo& io, LibXR::LockFreeQueue<SpiTransferRequest>& request_queue);
+
   ~SpiManager() = default;
 
   SpiManager(const SpiManager&) = delete;
   SpiManager& operator=(const SpiManager&) = delete;
 
-  // Lifecycle management.
+  /**
+   * @brief Initializes the SPI hardware and starts the SpiManager task.
+   *
+   * Configures SPI for XRDAP communication and creates a dedicated FreeRTOS task
+   * for processing SPI transfer requests.
+   */
   void Initialize();
-  void ProcessRequests();
+
+  /**
+   * @brief Stops SPI operations and terminates the SpiManager task.
+   */
   void Stop();
 
-  // Raw mode operations (rst_n = 0): MOSI → SWDIO direct pass-through.
-  LibXR::ErrorCode SendRawSequence(const uint8_t* bits, size_t bit_count);
-  LibXR::ErrorCode ExecuteLineReset();
-
-  // Transaction mode operations (rst_n = 1): First 15 bits have semantic meaning.
-  LibXR::ErrorCode SendSwdFrame(uint64_t frame_data, uint32_t& response_data);
-  LibXR::ErrorCode ExecuteSwdRead(uint8_t request, uint32_t* data, uint8_t* ack);
-  LibXR::ErrorCode ExecuteSwdWrite(uint8_t request, uint32_t data, uint8_t* ack);
-
-  // Queue management.
-  void EnqueueFrame(uint64_t frame);
+  /**
+   * @brief Checks if there are pending SPI transfer requests.
+   *
+   * @return True if the request queue has pending items, false otherwise.
+   */
   bool HasPendingRequests() const;
+
+  /**
+   * @brief Gets the current size of the request queue.
+   *
+   * @return Number of pending SPI transfer requests.
+   */
   size_t GetQueueSize() const;
 
-  // Status getters.
+  /**
+   * @brief Gets the initialization status of the SpiManager.
+   *
+   * @return True if the SpiManager is initialized and ready, false otherwise.
+   */
   bool initialized() const { return initialized_; }
-  uint32_t transaction_count() const { return transaction_count_; }
 
  private:
-  // Frame construction using XRDAP protocol.
-  uint64_t BuildSwdReadFrame(uint8_t request);
-  uint64_t BuildSwdWriteFrame(uint8_t request, uint32_t data);
+  /**
+   * @brief Handles SPI operation completion and triggers response callback.
+   *
+   * @param request The SPI transfer request that was completed.
+   * @param ec Error code from the SPI operation.
+   */
+  void HandleSpiCompletion(const SpiTransferRequest& request, LibXR::ErrorCode ec);
 
-  // Response processing using XRDAP protocol.
-  SwdResponse ParseSwdResponse(uint64_t response_frame);
+  /**
+   * @brief Static callback wrapper for SPI operations.
+   *
+   * @param in_isr True if called from interrupt context, false otherwise.
+   * @param context Context pointer to the SpiManager instance.
+   * @param ec Error code from the SPI operation.
+   */
+  static void SpiCallbackWrapper(bool in_isr, int context, LibXR::ErrorCode ec);
 
-  // Low-level SPI communication.
-  LibXR::ErrorCode SendSpi48(uint64_t tx_data, uint32_t* rx_data);
+  /**
+   * @brief SpiManager task function that processes SPI transfer requests.
+   *
+   * This function runs in a dedicated FreeRTOS task and continuously processes
+   * SPI transfer requests from the queue.
+   *
+   * @param arg Pointer to the SpiManager instance.
+   */
+  static void SpiManagerTask(void* arg);
 
-  DapIo& io_;
-  LibXR::LockFreeQueue<uint64_t>& request_queue_;
-
-  bool initialized_;
-  uint32_t transaction_count_;
+  DapIo& io_;                             ///< DAP I/O interface reference
+  LibXR::LockFreeQueue<SpiTransferRequest>&
+      request_queue_;                   ///< SPI transfer request queue
+  SpiTransferRequest current_request_;  ///< Current request being processed
+  bool initialized_;                    ///< Initialization status flag
+  LibXR::Thread spi_thread_;            ///< Dedicated FreeRTOS task
+  uint8_t rx_data_[6];                  ///< Static RX buffer for SPI operations
 };
 
-// Factory function.
-SpiManager* CreateSpiManager(DapIo& io, LibXR::LockFreeQueue<uint64_t>& queue);
+/**
+ * @brief Factory function to create a SpiManager instance.
+ *
+ * Uses static allocation to avoid dynamic memory allocation in embedded systems.
+ *
+ * @param io DAP I/O interface reference for SPI access.
+ * @param queue Lock-free queue for SPI transfer requests.
+ * @return Reference to the created SpiManager instance.
+ */
+SpiManager& CreateSpiManager(DapIo& io, LibXR::LockFreeQueue<SpiTransferRequest>& queue);
 
 }  // namespace DAP
