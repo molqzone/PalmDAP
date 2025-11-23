@@ -52,20 +52,26 @@ LibXR::ErrorCode XrdapTransferMethod(
 extern "C" void app_main()
 {
   LibXR::CH32SPI spi1(CH32_SPI1, {spi_dma_rx_buffer, 64}, {spi_dma_tx_buffer, 64}, GPIOA,
-                      GPIO_Pin_5, GPIOA, GPIO_Pin_6, GPIOA, GPIO_Pin_7);
+                      GPIO_Pin_5, GPIOA, GPIO_Pin_6, GPIOA, GPIO_Pin_7,
+                      0, true, false);  // pin_remap=0, master_mode=true, firstbit_msb=false for LSB first
 
   LibXR::CH32GPIO gpio_swdio(GPIOA, GPIO_Pin_8);
   LibXR::CH32GPIO gpio_tdo(GPIOA, GPIO_Pin_9);
   LibXR::CH32GPIO gpio_nreset(GPIOA, GPIO_Pin_10);
   LibXR::CH32GPIO gpio_led(GPIOB, GPIO_Pin_4);
 
-  DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset, gpio_led);
+  // XRDAP-specific GPIO control signals
+  LibXR::CH32GPIO gpio_rst_n(GPIOA, GPIO_Pin_11);  // XRDAP frame reset signal
+  LibXR::CH32GPIO gpio_rnw(GPIOA, GPIO_Pin_12);     // XRDAP read/write control
 
-  // Initialize simple XRDAP infrastructure - queue and SPI manager
+  // Create XRDAP-specific DAP I/O interface
+  DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset, gpio_led,
+                              gpio_rst_n, gpio_rnw);
+
   static LibXR::LockFreeQueue<DAP::SpiTransferRequest> spi_queue(32);
   g_spi_queue = &spi_queue;
 
-  // Create SPI manager to process the queue
+  // Create SPI manager
   auto& spi_manager = DAP::CreateSpiManager(dap_io_instance, spi_queue);
   spi_manager.Initialize();
 
@@ -110,9 +116,6 @@ extern "C" void app_main()
 
   while (1)
   {
-    // Process any pending SPI transfer requests
-    spi_manager.ProcessRequests();
-
-    LibXR::Thread::Sleep(10);  // Process queue more frequently for better responsiveness
+    LibXR::Thread::Sleep(1000);
   }
 }
