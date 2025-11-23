@@ -9,20 +9,30 @@ uint64_t GenerateSpiTransaction(uint8_t request, uint32_t write_data)
 {
   uint64_t frame = 0;
 
-  // SWD request byte (bit 0 is start, always 0; bit 1 is APnDP; bit 2 is RnW; bits 3-4
-  // are A3:A2; bit 5 is parity; bit 6 is stop; bit 7 is park)
-  frame = static_cast<uint64_t>(request) & 0xFF;  // Bits 0-7: SWD request byte
+  // XRDAP 48-bit SPI frame format (LSB first):
+  // bits 0-1: PADDING (always 0)
+  // bits 2-9: SWD request byte
+  // bit 10: TURN1 (bus turnaround)
+  // bits 11-13: ACK window (target drives)
+  // bit 14: TURN2/data boundary (WRITE: host can drive, READ: target drives)
+  // bits 15-46: DATA phase (32 bits + parity)
+  // bit 47+: IDLE/padding
 
-  // Write data for SWD write operations (bits 8-39)
+  // bits 0-1: PADDING (always 0 for alignment)
+  // frame = 0;  // Already 0
+
+  // bits 2-9: SWD request byte
+  frame |= (static_cast<uint64_t>(request) & 0xFF) << 2;
+
   bool is_read = (request & DAP_TRANSFER_RnW);
-  if (!is_read)
-  {
-    frame |= (static_cast<uint64_t>(write_data) << 8);  // Bits 8-39: 32-bit write data
-  }
 
-  // Parity for write data (bit 40)
   if (!is_read)
   {
+    // WRITE operation: include data in frame
+    // bits 15-46: 32-bit write data (LSB first)
+    frame |= (static_cast<uint64_t>(write_data) << 15);
+
+    // bit 46: Data parity bit
     uint8_t data_parity = 0;
     uint32_t temp_data = write_data;
     for (int i = 0; i < 32; i++)
@@ -30,11 +40,10 @@ uint64_t GenerateSpiTransaction(uint8_t request, uint32_t write_data)
       data_parity ^= (temp_data & 1);
       temp_data >>= 1;
     }
-    frame |= (static_cast<uint64_t>(data_parity) << 40);  // Bit 40: data parity
+    frame |= (static_cast<uint64_t>(data_parity) << 46);
   }
-
-  // Read operation: no data to place, hardware will capture response
-  // Bits 15-47 remain 0 for read operations
+  // READ operation: no data to place, hardware will capture response
+  // bits 15-47 remain 0 for read operations, target will drive data+parity
 
   return frame;
 }
