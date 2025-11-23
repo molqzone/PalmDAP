@@ -10,6 +10,8 @@
 #include "dap_io.hpp"
 #include "hid_dap.hpp"
 #include "libxr.hpp"
+#include "spi_manager.hpp"
+#include "xrdap.hpp"
 
 // EP0: Control, 64 bytes
 static uint8_t ep0_buffer_hs[64];
@@ -26,6 +28,27 @@ static uint8_t ep5_buffer_tx_hs[64];
 
 uint8_t spi_dma_tx_buffer[64], spi_dma_rx_buffer[64];
 
+static LibXR::LockFreeQueue<DAP::SpiTransferRequest>* g_spi_queue = nullptr;
+
+LibXR::ErrorCode XrdapTransferMethod(
+    uint8_t request, uint32_t write_data,
+    LibXR::Callback<const uint8_t*, size_t> response_callback)
+{
+  if (!g_spi_queue)
+  {
+    return LibXR::ErrorCode::FAILED;
+  }
+
+  // Generate 48-bit SPI transaction for XRDAP
+  uint64_t spi_frame = DAP::GenerateSpiTransaction(request, write_data);
+
+  // Create SPI transfer request
+  DAP::SpiTransferRequest spi_request(spi_frame, response_callback);
+
+  // Enqueue the SPI frame for processing
+  return g_spi_queue->Push(spi_request);
+}
+
 extern "C" void app_main()
 {
   LibXR::CH32SPI spi1(CH32_SPI1, {spi_dma_rx_buffer, 64}, {spi_dma_tx_buffer, 64}, GPIOA,
@@ -38,7 +61,15 @@ extern "C" void app_main()
 
   DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset, gpio_led);
 
-  LibXR::USB::HIDCmsisDap dap_interface(dap_io_instance, 1, 1);
+  // Initialize simple XRDAP infrastructure - queue and SPI manager
+  static LibXR::LockFreeQueue<DAP::SpiTransferRequest> spi_queue(32);
+  g_spi_queue = &spi_queue;
+
+  // Create SPI manager to process the queue
+  auto& spi_manager = DAP::CreateSpiManager(dap_io_instance, spi_queue);
+  spi_manager.Initialize();
+
+  LibXR::USB::HIDCmsisDap dap_interface(dap_io_instance, XrdapTransferMethod, 1, 1);
 
   static constexpr auto LANG_PACK_EN_US = LibXR::USB::DescriptorStrings::MakeLanguagePack(
       LibXR::USB::DescriptorStrings::Language::EN_US, "PalmDAP",
@@ -79,6 +110,9 @@ extern "C" void app_main()
 
   while (1)
   {
-    LibXR::Thread::Sleep(1000);
+    // Process any pending SPI transfer requests
+    spi_manager.ProcessRequests();
+
+    LibXR::Thread::Sleep(10);  // Process queue more frequently for better responsiveness
   }
 }

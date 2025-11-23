@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "../../spi/spi_manager.hpp"
+#include "spi_types.hpp"
 #include "dap_constants.hpp"
 #include "dap_io.hpp"
 #include "libxr.hpp"

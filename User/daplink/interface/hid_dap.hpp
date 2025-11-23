@@ -3,6 +3,7 @@
 #include <array>
 #include <cstring>
 
+#include "spi_types.hpp"
 #include "dap_protocol.hpp"
 #include "hid.hpp"
 
@@ -34,13 +35,15 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
   /**
    * @brief CMSIS-DAP V1 HID Interface
    * @param io DAP I/O interface reference
+   * @param transfer_method DAP transfer method for handling SWD operations
    * @param in_ep_interval IN endpoint polling interval (ms)
    * @param out_ep_interval OUT endpoint polling interval (ms)
    */
-  HIDCmsisDap(DAP::DapIo& io, uint8_t in_ep_interval = 1, uint8_t out_ep_interval = 1)
+  HIDCmsisDap(DAP::DapIo& io, DAP::TransferMethod transfer_method = nullptr,
+               uint8_t in_ep_interval = 1, uint8_t out_ep_interval = 1)
       : HID(false, in_ep_interval, out_ep_interval, Endpoint::EPNumber::EP_AUTO,
             Endpoint::EPNumber::EP_AUTO),
-        dap_engine_(io)
+        dap_engine_(io, transfer_method)
   {
   }
 
