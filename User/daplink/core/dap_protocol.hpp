@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 
 #include "spi_types.hpp"
 #include "dap_constants.hpp"
