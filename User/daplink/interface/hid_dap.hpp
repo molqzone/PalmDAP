@@ -3,9 +3,9 @@
 #include <array>
 #include <cstring>
 
-#include "spi_types.hpp"
 #include "dap_protocol.hpp"
 #include "hid.hpp"
+#include "spi_types.hpp"
 
 namespace LibXR::USB
 {
@@ -40,15 +40,40 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
    * @param out_ep_interval OUT endpoint polling interval (ms)
    */
   HIDCmsisDap(DAP::DapIo& io, DAP::TransferMethod transfer_method = nullptr,
-               uint8_t in_ep_interval = 1, uint8_t out_ep_interval = 1)
+              uint8_t in_ep_interval = 1, uint8_t out_ep_interval = 1)
       : HID(false, in_ep_interval, out_ep_interval, Endpoint::EPNumber::EP_AUTO,
             Endpoint::EPNumber::EP_AUTO),
-        dap_engine_(io, transfer_method)
+        dap_engine_(io, transfer_method),
+        response_callback_(LibXR::Callback<const uint8_t*, size_t>::Create(
+            [](bool in_isr, HIDCmsisDap* self, const uint8_t* response_data,
+               size_t response_len)
+            { self->HandleResponse(in_isr, response_data, response_len); },
+            this))
   {
   }
 
  private:
   DAP::DapProtocol dap_engine_;
+  LibXR::Callback<const uint8_t*, size_t> response_callback_;
+
+  /**
+   * @brief Callback function for handling DAP response data
+   * @param in_isr Whether called from interrupt context
+   * @param response_data Pointer to response data buffer
+   * @param response_len Length of response data
+   */
+  void HandleResponse(bool in_isr, const uint8_t* response_data, size_t response_len)
+  {
+    UNUSED(in_isr);
+
+    static uint8_t response_packet[64];
+    std::memset(response_packet, 0, sizeof(response_packet));
+
+    size_t copy_len = (response_len > 64) ? 64 : response_len;
+    std::memcpy(response_packet, response_data, copy_len);
+
+    SendInputReport(ConstRawData{response_packet, 64});
+  }
 
  protected:
   /**
@@ -105,21 +130,7 @@ class HIDCmsisDap : public HID<sizeof(CMSIS_DAP_REPORT_DESC), 64, 64>
       return ErrorCode::OK;
     }
 
-    auto response_callback = LibXR::Callback<const uint8_t*, size_t>::Create(
-        [](bool in_isr, HIDCmsisDap* self, const uint8_t* response_data, size_t response_len) {
-          UNUSED(in_isr);
-
-          static uint8_t response_packet[64];
-          std::memset(response_packet, 0, sizeof(response_packet));
-
-          size_t copy_len = (response_len > 64) ? 64 : response_len;
-          std::memcpy(response_packet, response_data, copy_len);
-
-          self->SendInputReport(ConstRawData{response_packet, 64});
-        },
-        this);
-
-    dap_engine_.ExecuteCommand(request, response_callback);
+    dap_engine_.ExecuteCommand(request, response_callback_);
 
     return ErrorCode::OK;
   }

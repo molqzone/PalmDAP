@@ -7,7 +7,16 @@ namespace DAP
 {
 
 SpiManager::SpiManager(DapIo& io, LibXR::LockFreeQueue<SpiTransferRequest>& request_queue)
-    : io_(io), request_queue_(request_queue), initialized_(false)
+    : io_(io),
+      request_queue_(request_queue),
+      initialized_(false),
+      spi_callback_(LibXR::Callback<LibXR::ErrorCode>::Create(
+          [](bool in_isr, SpiManager* manager, LibXR::ErrorCode ec)
+          {
+            UNUSED(in_isr);
+            manager->HandleSpiCompletion(manager->current_request_, ec);
+          },
+          this))
 {
 }
 
@@ -61,9 +70,8 @@ void SpiManager::SpiManagerTask(void* arg)
         tx_data[i] = static_cast<uint8_t>(manager->current_request_.spi_frame >> (i * 8));
       }
 
-      // Create callback for SPI operation completion
-      auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
-          SpiCallbackWrapper, reinterpret_cast<int>(manager));
+      // Use pre-initialized callback for SPI operation completion
+      LibXR::Callback<LibXR::ErrorCode> spi_callback = manager->spi_callback_;
 
       // Start asynchronous SPI transaction
       LibXR::SPI::OperationRW spi_op(spi_callback);

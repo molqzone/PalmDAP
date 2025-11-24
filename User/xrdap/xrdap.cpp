@@ -33,12 +33,12 @@ uint64_t GenerateSpiTransaction(uint8_t request, uint32_t write_data)
   // READ: PARITY at bit 46, WRITE: PARITY at bit 47
 
   // Bit masks
-  constexpr uint8_t REQUEST_MASK = 0xFF;     // 8-bit request field
-  constexpr uint32_t DATA_MASK = 0xFFFFFFFF; // 32-bit data field
-  constexpr uint8_t PARITY_MASK = 0x01;      // 1-bit parity field
+  constexpr uint8_t REQUEST_MASK = 0xFF;      // 8-bit request field
+  constexpr uint32_t DATA_MASK = 0xFFFFFFFF;  // 32-bit data field
+  constexpr uint8_t PARITY_MASK = 0x01;       // 1-bit parity field
 
   // Data field constants
-  constexpr uint8_t DATA_BITS = 32;          // 32 bits for data field
+  constexpr uint8_t DATA_BITS = 32;  // 32 bits for data field
 
   uint64_t frame = 0;
 
@@ -192,7 +192,8 @@ bool GenerateDapTransferResponse(uint8_t request, const uint8_t rx_data[6],
     // Include read data in response (little-endian)
     for (int i = 0; i < RESPONSE_DATA_SIZE; i++)
     {
-      response[RESPONSE_HEADER_SIZE + i] = static_cast<uint8_t>((read_data >> (i * 8)) & 0xFF);
+      response[RESPONSE_HEADER_SIZE + i] =
+          static_cast<uint8_t>((read_data >> (i * 8)) & 0xFF);
     }
     response_size = RESPONSE_MAX_SIZE;
   }

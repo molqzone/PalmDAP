@@ -9,7 +9,11 @@ namespace DAP
 {
 
 DapProtocol::DapProtocol(DapIo& io, TransferMethod transfer_method)
-    : io_(io), swd_transfer_method_(transfer_method)
+    : io_(io),
+      swd_transfer_method_(transfer_method),
+      spi_callback_(LibXR::Callback<LibXR::ErrorCode>::Create(
+          [](bool in_isr, DapProtocol* self, LibXR::ErrorCode ec)
+          { self->HandleSpiWriteComplete(in_isr, 0, ec); }, this))
 {
   Setup();
 }
@@ -223,70 +227,25 @@ void DapProtocol::HandleDisconnect(
 
 LibXR::ErrorCode DapProtocol::SetupSwd()
 {
-  LibXR::ErrorCode err;
+  // Initialize XRDAP SPI for SWD communication
+  io_.InitializeXrdapSpi();
 
-  // Configure SPI to generate SWCLK (SPI Mode 0 is typical for SWD)
-  // NOTE - The actual clock frequency should be set via HandleSwjClock.
-  err =
-      io_.spi.SetConfig({LibXR::SPI::ClockPolarity::LOW, LibXR::SPI::ClockPhase::EDGE_1});
-  if (err != LibXR::ErrorCode::OK)
-  {
-    return err;
-  }
-
-  // Configure GPIOs for SWDIO and nRESET as needed
-  // nRESET is open-drain, kept high (de-asserted)
-  err = io_.gpio_nreset.SetConfig({
-      LibXR::GPIO::Direction::OUTPUT_OPEN_DRAIN,
-      LibXR::GPIO::Pull::NONE  // NOTE - Assuming external pull-up
-  });
-  if (err != LibXR::ErrorCode::OK)
-  {
-    return err;
-  }
+  // Set initial GPIO states (configuration already done in app_main)
   io_.gpio_nreset.Write(true);  // Deassert nRESET
+  io_.gpio_led.Write(false);    // LED off initially
 
-  // SWDIO is used for both input and output. We'll manage its direction.
-  // Start with it as an output for the switching sequence.
-  err = io_.gpio_swdio.SetConfig({
-      LibXR::GPIO::Direction::OUTPUT_PUSH_PULL,
-      LibXR::GPIO::Pull::NONE  // NOTE - Assuming external pull-up
-  });
-  if (err != LibXR::ErrorCode::OK)
-  {
-    return err;
-  }
+  // For XRDAP, the actual SWD initialization is handled by the hardware
+  // when normal SWD transfers begin. We just need to ensure the hardware
+  // is in the correct state for XRDAP operation.
 
-  // Execute the JTAG-to-SWD Switching Sequence as single pack
+  // Set rnw to a known state (WRITE mode initially)
+  io_.SetReadWriteDirection(false);
 
-  // Send > 50 SWCLK cycles with SWDIO (TMS) high to reset JTAG state machine.
-  io_.gpio_swdio.Write(true);  // SWDIO high
+  // Ensure we're in normal XRDAP operation mode (not RAW mode)
+  io_.ExitRawMode();
 
-  // Create single pack: [64 high bits] + [JTAG-to-SWD sequence 0xE79E] + [64 high bits]
-  static const uint8_t swd_sequence_pack[] = {
-      // 64 high bits to reset JTAG state machine (8 bytes * 8 = 64 bits)
-      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      // 16-bit JTAG-to-SWD sequence (0xE79E), MSB first
-      0xE7, 0x9E,
-      // 64 high bits to finalize SWD mode
-      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-  auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
-      [](bool in_isr, int context, LibXR::ErrorCode ec)
-      {
-        // SPI write completion callback - no action needed for now
-        UNUSED(in_isr);
-        UNUSED(context);
-        UNUSED(ec);
-      },
-      0);  // context value not used
-
-  LibXR::WriteOperation spi_op(spi_callback);
-  err = io_.spi.Write({swd_sequence_pack, sizeof(swd_sequence_pack)}, spi_op);
-  if (err != LibXR::ErrorCode::OK)
-  {
-    return err;
-  }
+  // Turn on LED to indicate SWD mode is ready
+  io_.gpio_led.Write(true);
 
   return LibXR::ErrorCode::OK;
 }
@@ -337,17 +296,7 @@ LibXR::ErrorCode DapProtocol::SetupJtag()
 
   static const uint8_t jtag_reset_pack[] = {0xFF};
 
-  auto spi_callback = LibXR::Callback<LibXR::ErrorCode>::Create(
-      [](bool in_isr, int context, LibXR::ErrorCode ec)
-      {
-        // SPI write completion callback - no action needed for now
-        UNUSED(in_isr);
-        UNUSED(context);
-        UNUSED(ec);
-      },
-      0);  // context value not used
-
-  LibXR::WriteOperation spi_op(spi_callback);
+  LibXR::WriteOperation spi_op(spi_callback_);
   err = io_.spi.Write({jtag_reset_pack, sizeof(jtag_reset_pack)}, spi_op);
   if (err != LibXR::ErrorCode::OK)
   {
@@ -364,14 +313,87 @@ void DapProtocol::PortOff()
   io_.gpio_nreset.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
 }
 
+void DapProtocol::HandleSpiWriteComplete(bool in_isr, int context, LibXR::ErrorCode ec)
+{
+  UNUSED(in_isr);
+  UNUSED(context);
+  UNUSED(ec);
+  // Currently this is a dummy callback - sequence transmission completes synchronously
+  // through the SPI hardware, so no additional processing is needed here
+}
+
 void DapProtocol::HandleSwjPins(const uint8_t* req,
                                 LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
-  // TODO: Implement actual pin control if needed
+  // DAP_SWJ_Pins command format: [0x10] [Pin_select] [Pin_values] [Wait_time(L)]
+  // [Wait_time(H)]
+  const uint8_t pin_select = req[0];
+  const uint8_t pin_values = req[1];
+  const uint16_t wait_time = static_cast<uint16_t>(req[2] | (req[3] << 8));
+
   static uint8_t response[2];
   response[0] = static_cast<uint8_t>(CommandId::SWJ_Pins);
-  response[1] = 0x00;  // Status: OK
 
+  // Initialize XRDAP SPI if needed
+  io_.InitializeXrdapSpi();
+
+  // Control SWJ pins based on selection mask
+  uint8_t actual_output = 0;
+
+  // Control nRESET pin if selected
+  if (pin_select & DAP_SWJ_nRESET)
+  {
+    bool nreset_state = (pin_values & DAP_SWJ_nRESET) != 0;
+    io_.gpio_nreset.Write(nreset_state);
+    if (nreset_state)
+    {
+      actual_output |= DAP_SWJ_nRESET;
+    }
+  }
+
+  // Control TDI pin if selected (for JTAG mode)
+  if (pin_select & DAP_SWJ_TDI)
+  {
+    bool tdi_state = (pin_values & DAP_SWJ_TDI) != 0;
+    // For XRDAP, TDI can be controlled via SWDIO in RAW mode or GPIO
+    io_.gpio_swdio.Write(tdi_state);
+    if (tdi_state)
+    {
+      actual_output |= DAP_SWJ_TDI;
+    }
+  }
+
+  // Control SWDIO/TMS pin if selected
+  if (pin_select & DAP_SWJ_SWDIO_TMS)
+  {
+    bool swdio_state = (pin_values & DAP_SWJ_SWDIO_TMS) != 0;
+    io_.gpio_swdio.Write(swdio_state);
+    if (swdio_state)
+    {
+      actual_output |= DAP_SWJ_SWDIO_TMS;
+    }
+  }
+
+  // Wait for specified time (in microseconds) if requested
+  if (wait_time > 0)
+  {
+    LibXR::Thread::Sleep(wait_time / 1000);  // Convert microseconds to milliseconds
+  }
+
+  // Read actual pin states for response
+  uint8_t pin_status = actual_output;
+
+  // Read TDO pin if supported
+  if (pin_select & DAP_SWJ_TDO)
+  {
+    bool tdo_state = io_.gpio_tdo.Read();
+    if (tdo_state)
+    {
+      pin_status |= DAP_SWJ_TDO;
+    }
+  }
+
+  response[1] = pin_status;
   response_callback.Run(true, response, 2);
 }
 
@@ -389,10 +411,46 @@ void DapProtocol::HandleSwjClock(
 void DapProtocol::HandleSwjSequence(
     const uint8_t* req, LibXR::Callback<const uint8_t*, size_t> response_callback)
 {
-  // TODO: Implement actual SWJ sequence if needed
+  // DAP_SWJ_Sequence command format: [0x12] [Bit_count] [Sequence_data...]
+  const uint8_t bit_count = req[0];
+  const uint8_t* sequence_data = &req[1];
+
   static uint8_t response[2];
   response[0] = static_cast<uint8_t>(CommandId::SWJ_Sequence);
-  response[1] = 0x00;  // Status: OK
+
+  // Validate bit count (must be non-zero)
+  if (bit_count == 0)
+  {
+    response[1] = static_cast<uint8_t>(DAP_TRANSFER_ERROR);
+    response_callback.Run(true, response, 2);
+    return;
+  }
+
+  // Calculate number of bytes needed for the sequence
+  const uint8_t byte_count = (bit_count + 7) / 8;  // Round up to nearest byte
+
+  // Initialize SPI in XRDAP mode
+  io_.InitializeXrdapSpi();
+
+  // Enter RAW mode for SWJ sequence transmission
+  io_.EnterRawMode();
+
+  LibXR::WriteOperation spi_op(spi_callback_);
+
+  // Send the sequence data via SPI (MOSI → SWDIO direct pass-through in RAW mode)
+  LibXR::ErrorCode err = io_.spi.Write({sequence_data, byte_count}, spi_op);
+
+  // Exit RAW mode after sequence transmission
+  io_.ExitRawMode();
+
+  if (err == LibXR::ErrorCode::OK)
+  {
+    response[1] = static_cast<uint8_t>(Status::OK);
+  }
+  else
+  {
+    response[1] = static_cast<uint8_t>(DAP_TRANSFER_ERROR);
+  }
 
   response_callback.Run(true, response, 2);
 }

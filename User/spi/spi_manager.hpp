@@ -94,13 +94,14 @@ class SpiManager
    */
   static void SpiManagerTask(void* arg);
 
-  DapIo& io_;                             ///< DAP I/O interface reference
+  DapIo& io_;  ///< DAP I/O interface reference
   LibXR::LockFreeQueue<SpiTransferRequest>&
       request_queue_;                   ///< SPI transfer request queue
   SpiTransferRequest current_request_;  ///< Current request being processed
   bool initialized_;                    ///< Initialization status flag
   LibXR::Thread spi_thread_;            ///< Dedicated FreeRTOS task
   uint8_t rx_data_[6];                  ///< Static RX buffer for SPI operations
+  LibXR::Callback<LibXR::ErrorCode> spi_callback_;  ///< Reusable SPI operation callback
 };
 
 /**

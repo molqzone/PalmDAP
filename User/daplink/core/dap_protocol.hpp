@@ -2,10 +2,10 @@
 
 #include <cstdint>
 
-#include "spi_types.hpp"
 #include "dap_constants.hpp"
 #include "dap_io.hpp"
 #include "libxr.hpp"
+#include "spi_types.hpp"
 
 namespace DAP
 {
@@ -231,11 +231,22 @@ class DapProtocol
   LibXR::ErrorCode SetupJtag();
   void PortOff();
 
+  /**
+   * @brief Callback function for handling SPI write completion
+   * @param in_isr Whether called from interrupt context
+   * @param context Context parameter (unused)
+   * @param ec Error code from SPI operation
+   */
+  void HandleSpiWriteComplete(bool in_isr, int context, LibXR::ErrorCode ec);
+
   DapIo& io_;
   State state_;
 
   // Transfer method callback for handling DAP transfers
   TransferMethod swd_transfer_method_;
+
+  // SPI callback for sequence transmission
+  LibXR::Callback<LibXR::ErrorCode> spi_callback_;
 
   using InfoHandler = std::function<uint8_t(uint8_t* response_data_buffer)>;
   struct InfoEntry
