@@ -48,6 +48,40 @@ struct DapIo
   }
 
   /**
+   * @brief Initialize all GPIOs for XRDAP operation
+   *
+   * Configures all GPIO pins with proper settings for XRDAP-SWD-Probe operation:
+   * - nRESET as open-drain for proper SWD reset behavior
+   * - LED as push-pull output
+   * - TDO as input with pull-up for JTAG compatibility
+   * - XRDAP control signals as push-pull outputs
+   * - SWDIO set for SPI hardware control
+   */
+  void InitializeGpios()
+  {
+    // nRESET should be open-drain for proper SWD reset behavior
+    gpio_nreset.SetConfig(
+        {LibXR::GPIO::Direction::OUTPUT_OPEN_DRAIN, LibXR::GPIO::Pull::NONE});
+
+    // LED as output
+    gpio_led.SetConfig({LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
+
+    // TDO as input for JTAG compatibility
+    gpio_tdo.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
+
+    // XRDAP control signals as outputs
+    gpio_rst_n.SetConfig(
+        {LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
+
+    gpio_rnw.SetConfig({LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
+
+    // SWDIO configured by SPI hardware for XRDAP operation
+    gpio_swdio.SetConfig(
+        {LibXR::GPIO::Direction::INPUT,  // Will be controlled by SPI hardware
+         LibXR::GPIO::Pull::NONE});
+  }
+
+  /**
    * @brief Initialize SPI for XRDAP communication
    *
    * Configures SPI with XRDAP-required settings:

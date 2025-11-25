@@ -65,31 +65,12 @@ extern "C" void app_main()
   LibXR::CH32GPIO gpio_rst_n(GPIOA, GPIO_Pin_11);  // XRDAP frame reset signal
   LibXR::CH32GPIO gpio_rnw(GPIOA, GPIO_Pin_12);    // XRDAP read/write control
 
-  // Configure GPIOs for XRDAP operation
-  // nRESET should be open-drain for proper SWD reset behavior
-  gpio_nreset.SetConfig(
-      {LibXR::GPIO::Direction::OUTPUT_OPEN_DRAIN, LibXR::GPIO::Pull::NONE});
-
-  // LED as output
-  gpio_led.SetConfig({LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
-
-  // TDO as input for JTAG compatibility
-  gpio_tdo.SetConfig({LibXR::GPIO::Direction::INPUT, LibXR::GPIO::Pull::UP});
-
-  // XRDAP control signals as outputs
-  gpio_rst_n.SetConfig(
-      {LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
-
-  gpio_rnw.SetConfig({LibXR::GPIO::Direction::OUTPUT_PUSH_PULL, LibXR::GPIO::Pull::NONE});
-
-  // SWDIO configured by SPI hardware for XRDAP operation
-  gpio_swdio.SetConfig(
-      {LibXR::GPIO::Direction::INPUT,  // Will be controlled by SPI hardware
-       LibXR::GPIO::Pull::NONE});
-
   // Create XRDAP-specific DAP I/O interface
   DAP::DapIo dap_io_instance(spi1, gpio_swdio, gpio_tdo, gpio_nreset, gpio_led,
                              gpio_rst_n, gpio_rnw);
+
+  // Initialize all GPIOs for XRDAP operation
+  dap_io_instance.InitializeGpios();
 
   static LibXR::LockFreeQueue<DAP::SpiTransferRequest> spi_queue(8);
   g_spi_queue = &spi_queue;
