@@ -1,0 +1,31 @@
+GPIO: {}
+Peripherals:
+  ADC: {}
+  USB:
+    USB_OTG_FS:
+      IPParameters:
+      - VirtualMode
+      VirtualMode: Device_Only
+DMA:
+  Requests: {}
+  Configurations: {}
+Timebase:
+  Source: SysTick
+  IRQ: null
+Mcu:
+  Family: STM32H7
+  Type: STM32H743VGT6
+FreeRTOS:
+  RTOS: FreeRTOS
+  Enabled: false
+  AllocationMethod: null
+  MemPoolSize: null
+  CorePresent: null
+  Tasks:
+    defaultTask:
+      Priority: '24'
+      StackSize: 128B
+      EntryFunction: StartDefaultTask
+      Type: Default
+  Heap: null
+  Features: []
